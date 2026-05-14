@@ -1,7 +1,8 @@
 {
   "vCenter": {
     "server": "vcenter.chunghwa.local",
-    "vdsName": "DSwitch-Prod"
+    "sourceVdsName": "DSwitch-Prod",
+    "destinationVdsName": "DSwitch-Prod"
   },
   "vcd": {
     "server": "vcd.chunghwa.local",
