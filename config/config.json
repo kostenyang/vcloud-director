@@ -1,0 +1,20 @@
+{
+  "vCenter": {
+    "server": "vcenter.chunghwa.local",
+    "vdsName": "DSwitch-Prod"
+  },
+  "vcd": {
+    "server": "vcd.chunghwa.local",
+    "apiVersion": "40.0",
+    "org": "System",
+    "skipCertificateCheck": true
+  },
+  "tenant": {
+    "orgName": "ChunghwaOrg",
+    "orgVdcName": "ChunghwaOrg-VDC"
+  },
+  "portGroup": {
+    "source": "PG-Tenant-VLAN100",
+    "destinationSuffix": "-new"
+  }
+}

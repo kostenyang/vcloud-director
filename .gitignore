@@ -1,0 +1,11 @@
+# 不要把含密碼 / 環境資訊的檔案 commit 進來
+config/config.local.json
+*.cred
+*.secret
+
+# 執行記錄
+logs/
+*.log
+
+# PowerShell
+*.tmp
