@@ -3,6 +3,9 @@ config/config.local.json
 *.cred
 *.secret
 
+# Script 1 產出的交接檔(含 moref 等環境資訊),由 Script 2 讀取
+state/
+
 # 執行記錄
 logs/
 *.log

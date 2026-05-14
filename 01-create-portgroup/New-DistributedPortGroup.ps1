@@ -1,21 +1,30 @@
 <#
 .SYNOPSIS
-  Step 1 / 2 - Create the "destination" distributed portgroup on a vCenter vDS.
+  Step 1 / 2 - Target vCenter: create the "destination" distributed portgroup
+  on a vDS, then write a JSON hand-off file for step 2.
 
 .DESCRIPTION
-  Clones the settings (VLAN, binding, teaming, etc.) from the source portgroup
-  and creates a new portgroup named "<source name> + suffix (-new)".
+  This script works entirely against vCenter (VC):
+    1. Clone the settings (VLAN, binding, teaming, etc.) from the source
+       portgroup and create a new portgroup named "<source name> + suffix (-new)".
+    2. Write a JSON hand-off file to state\ that records what was created
+       (vCenter, vDS, portgroup name, moref, VLAN, tenant info).
+
+  Step 2 (02-import-switch-nic) consumes that hand-off file to perform the
+  tenant network import and NIC migration - it does NOT re-discover this
+  information itself.
 
   The source vDS and destination vDS are separate variables: the destination
   portgroup can be created on a *different* vDS (source on A, destination on B).
   When both are the same, it simply clones within the same vDS.
 
-  This script only touches vCenter, not VCD. Run script 2 afterwards to import
-  the network into the tenant and reconnect the NICs.
-
 .PARAMETER ConfigPath
   Path to config.json. Defaults to ..\config\config.json
   (config.local.json is used in preference if present).
+
+.PARAMETER HandoffPath
+  Path to the JSON hand-off file written for step 2.
+  Defaults to ..\state\portgroup-handoff.json.
 
 .PARAMETER SourceVdsName
   vDS that hosts the source portgroup. Defaults to config vCenter.sourceVdsName.
@@ -26,13 +35,13 @@
   a different vDS.
 
 .PARAMETER Rollback
-  Rollback mechanism: delete the previously created destination portgroup.
+  Rollback mechanism: delete the destination portgroup and the hand-off file.
   Aborts if any VM is still connected to it - run script 2 first to move the
   NICs back.
 
 .EXAMPLE
   pwsh ./01-create-portgroup/New-DistributedPortGroup.ps1
-  # Create the destination portgroup using config values
+  # Create the destination portgroup and write the hand-off file
 
 .EXAMPLE
   pwsh ./01-create-portgroup/New-DistributedPortGroup.ps1 -DestinationVdsName "DSwitch-DR"
@@ -40,11 +49,12 @@
 
 .EXAMPLE
   pwsh ./01-create-portgroup/New-DistributedPortGroup.ps1 -Rollback
-  # Rollback: delete the destination portgroup that was created
+  # Rollback: delete the destination portgroup and the hand-off file
 #>
 [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
 param(
-    [string] $ConfigPath = "$PSScriptRoot\..\config\config.json",
+    [string] $ConfigPath  = "$PSScriptRoot\..\config\config.json",
+    [string] $HandoffPath = "$PSScriptRoot\..\state\portgroup-handoff.json",
     [string] $SourceVdsName,
     [string] $DestinationVdsName,
     [switch] $Rollback
@@ -70,6 +80,7 @@ $destPg   = $cfg.portGroup.source + $cfg.portGroup.destinationSuffix
 
 Write-Host "Source vDS / portgroup      : $SourceVdsName / $sourcePg"
 Write-Host "Destination vDS / portgroup : $DestinationVdsName / $destPg"
+Write-Host "Hand-off file               : $HandoffPath"
 Write-Host "Mode                        : $(if ($Rollback) { 'ROLLBACK (delete destination portgroup)' } else { 'CREATE destination portgroup' })" -ForegroundColor $(if ($Rollback) { 'Magenta' } else { 'White' })
 
 # --- PowerCLI ------------------------------------------------------------
@@ -87,21 +98,29 @@ try {
         $existing = Get-VDPortgroup -VDSwitch $destVds -Name $destPg -ErrorAction SilentlyContinue
         if (-not $existing) {
             Write-Warning "Destination portgroup '$destPg' does not exist on vDS '$DestinationVdsName'; nothing to roll back."
-            return
+        }
+        else {
+            # Safety check: do not delete while VMs are still connected
+            $connectedVms = $existing | Get-VM -ErrorAction SilentlyContinue
+            if ($connectedVms) {
+                Write-Warning "The following VMs are still connected to '$destPg'. Run 02-import-switch-nic/Import-And-Switch-TenantNic.ps1 first to move the NICs back:"
+                $connectedVms | Select-Object Name, PowerState | Format-Table -AutoSize
+                throw "Rollback aborted: destination portgroup still has connected VMs."
+            }
+            if ($PSCmdlet.ShouldProcess($destPg, "Delete portgroup from vDS '$DestinationVdsName'")) {
+                Remove-VDPortgroup -VDPortgroup $existing -Confirm:$false
+                Write-Host "Deleted portgroup: $destPg" -ForegroundColor Green
+            }
         }
 
-        # Safety check: do not delete while VMs are still connected
-        $connectedVms = $existing | Get-VM -ErrorAction SilentlyContinue
-        if ($connectedVms) {
-            Write-Warning "The following VMs are still connected to '$destPg'. Run 02-import-switch-nic/Import-And-Switch-TenantNic.ps1 first to move the NICs back:"
-            $connectedVms | Select-Object Name, PowerState | Format-Table -AutoSize
-            throw "Rollback aborted: destination portgroup still has connected VMs."
+        # Remove the hand-off file so step 2 cannot run against stale info
+        if (Test-Path $HandoffPath) {
+            if ($PSCmdlet.ShouldProcess($HandoffPath, "Delete hand-off file")) {
+                Remove-Item $HandoffPath -Force
+                Write-Host "Deleted hand-off file: $HandoffPath" -ForegroundColor Green
+            }
         }
-
-        if ($PSCmdlet.ShouldProcess($destPg, "Delete portgroup from vDS '$DestinationVdsName'")) {
-            Remove-VDPortgroup -VDPortgroup $existing -Confirm:$false
-            Write-Host "Deleted portgroup: $destPg (rollback complete)" -ForegroundColor Green
-        }
+        Write-Host "Rollback complete." -ForegroundColor Green
         return
     }
 
@@ -115,20 +134,50 @@ try {
 
     $existing = Get-VDPortgroup -VDSwitch $destVds -Name $destPg -ErrorAction SilentlyContinue
     if ($existing) {
-        Write-Warning "Destination portgroup '$destPg' already exists on vDS '$DestinationVdsName'; skipping creation."
-        return
+        Write-Warning "Destination portgroup '$destPg' already exists on vDS '$DestinationVdsName'; reusing it."
+        $pg = $existing
+    }
+    elseif ($PSCmdlet.ShouldProcess($destPg, "Create on vDS '$DestinationVdsName' (cloned from '$SourceVdsName/$sourcePg')")) {
+        $pg = New-VDPortgroup -VDSwitch $destVds -Name $destPg -ReferencePortgroup $src
+        Write-Host "Created portgroup: $($pg.Name)" -ForegroundColor Green
+    }
+    else {
+        return   # -WhatIf: nothing created, no hand-off file
     }
 
-    if ($PSCmdlet.ShouldProcess($destPg, "Create on vDS '$DestinationVdsName' (cloned from '$SourceVdsName/$sourcePg')")) {
-        $new = New-VDPortgroup -VDSwitch $destVds -Name $destPg -ReferencePortgroup $src
-        Write-Host "Created portgroup: $($new.Name)" -ForegroundColor Green
-        Write-Host "  vDS         : $DestinationVdsName"
-        Write-Host "  Key (moref) : $($new.Key)"
-        Write-Host "  VLAN        : $($new.Extensiondata.Config.DefaultPortConfig.Vlan.VlanId)"
-        Write-Host ""
-        Write-Host "Next step: run 02-import-switch-nic/Import-And-Switch-TenantNic.ps1 to import into the tenant and reconnect NICs." -ForegroundColor Cyan
-        Write-Host "To undo:   pwsh ./01-create-portgroup/New-DistributedPortGroup.ps1 -Rollback" -ForegroundColor DarkGray
+    # --- Write the hand-off file for step 2 ------------------------------
+    $handoff = [ordered]@{
+        schemaVersion             = 1
+        createdAt                 = (Get-Date).ToString('o')
+        createdBy                 = '01-create-portgroup/New-DistributedPortGroup.ps1'
+        vCenter                   = $cfg.vCenter.server
+        sourceVdsName             = $SourceVdsName
+        destinationVdsName        = $DestinationVdsName
+        sourcePortgroup           = $sourcePg
+        destinationPortgroup      = $pg.Name
+        destinationPortgroupMoref = $pg.Key
+        destinationSuffix         = $cfg.portGroup.destinationSuffix
+        vlanId                    = "$($pg.Extensiondata.Config.DefaultPortConfig.Vlan.VlanId)"
+        tenant                    = [ordered]@{
+            orgName    = $cfg.tenant.orgName
+            orgVdcName = $cfg.tenant.orgVdcName
+        }
     }
+
+    $stateDir = Split-Path $HandoffPath
+    if (-not (Test-Path $stateDir)) { New-Item -ItemType Directory -Path $stateDir -Force | Out-Null }
+    $handoff | ConvertTo-Json -Depth 10 | Set-Content -Path $HandoffPath -Encoding UTF8
+
+    Write-Host ""
+    Write-Host "Portgroup ready:" -ForegroundColor Green
+    Write-Host "  vDS         : $DestinationVdsName"
+    Write-Host "  Portgroup   : $($pg.Name)"
+    Write-Host "  Key (moref) : $($pg.Key)"
+    Write-Host "  VLAN        : $($handoff.vlanId)"
+    Write-Host "Hand-off file written: $HandoffPath" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "Next step: run 02-import-switch-nic/Import-And-Switch-TenantNic.ps1 - it reads the hand-off file above." -ForegroundColor Cyan
+    Write-Host "To undo:   pwsh ./01-create-portgroup/New-DistributedPortGroup.ps1 -Rollback" -ForegroundColor DarkGray
 }
 finally {
     Disconnect-VIServer -Server $vc -Confirm:$false -ErrorAction SilentlyContinue

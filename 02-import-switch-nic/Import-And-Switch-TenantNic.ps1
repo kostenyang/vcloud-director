@@ -1,15 +1,19 @@
 <#
 .SYNOPSIS
-  Step 2 / 2 - Import the portgroup created by script 1 as a tenant Org VDC
-  Network, and reconnect the NICs of VMs in that tenant that are currently
-  attached to the "source network".
+  Step 2 / 2 - Based on the hand-off file produced by step 1, import the new
+  portgroup as a tenant Org VDC Network and migrate the tenant VM NICs onto it.
 
 .DESCRIPTION
+  This script does NOT re-discover the portgroup itself - it is driven by the
+  hand-off file written by step 1 (state\portgroup-handoff.json), which carries
+  the portgroup name, moref, suffix and tenant info.
+
   Flow:
-    1. Log in to VCD (10.6.1 / API 40.0) as a System administrator
-    2. Use the query service to find the moref of the new portgroup
+    1. Read the hand-off file from step 1; read VCD connection info from config
+    2. Log in to VCD (10.6.1 / API 40.0) as a System administrator
     3. Use the OpenAPI to create an "imported (OPAQUE)" Org VDC Network in the
-       target Org VDC. The destination network name = source network name + suffix (-new)
+       target Org VDC, backed by the portgroup moref from the hand-off file.
+       Destination network name = source network name + suffix (-new)
     4. Find every VM in the Org whose NIC is attached to the "source network"
     5. Use the legacy API to rewrite each VM's networkConnectionSection,
        reconnecting the NIC to the new network
@@ -17,11 +21,17 @@
   Run with -WhatIf first to review the affected VM list before applying.
 
 .PARAMETER ConfigPath
-  Path to config.json. Defaults to ..\config\config.json
-  (config.local.json is used in preference if present).
+  Path to config.json (used for VCD connection settings only).
+  Defaults to ..\config\config.json (config.local.json takes precedence).
+
+.PARAMETER HandoffPath
+  Path to the JSON hand-off file produced by step 1.
+  Defaults to ..\state\portgroup-handoff.json.
 
 .PARAMETER SourceNetworkName
-  The tenant-side "source" Org VDC Network name. Defaults to config portGroup.source.
+  The tenant-side "source" Org VDC Network name. Defaults to the
+  sourcePortgroup value from the hand-off file. Override when the VCD network
+  name differs from the vCenter portgroup name.
 
 .EXAMPLE
   pwsh ./02-import-switch-nic/Import-And-Switch-TenantNic.ps1 -WhatIf   # dry run
@@ -29,31 +39,45 @@
 #>
 [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
 param(
-    [string] $ConfigPath = "$PSScriptRoot\..\config\config.json",
+    [string] $ConfigPath  = "$PSScriptRoot\..\config\config.json",
+    [string] $HandoffPath = "$PSScriptRoot\..\state\portgroup-handoff.json",
     [string] $SourceNetworkName
 )
 
 $ErrorActionPreference = 'Stop'
 
-# --- Load configuration and shared functions ---------------------------
+# --- Load shared functions, config (VCD connection) and hand-off file ---
+. "$PSScriptRoot\..\lib\VcdRest.ps1"
+
 $localCfg = Join-Path (Split-Path $ConfigPath) 'config.local.json'
 if (Test-Path $localCfg) { $ConfigPath = $localCfg }
 Write-Host "Loading config file: $ConfigPath" -ForegroundColor Cyan
 $cfg = Get-Content $ConfigPath -Raw | ConvertFrom-Json
 
-. "$PSScriptRoot\..\lib\VcdRest.ps1"
+if (-not (Test-Path $HandoffPath)) {
+    throw "Hand-off file not found: $HandoffPath - run step 1 (01-create-portgroup) first."
+}
+Write-Host "Loading hand-off file: $HandoffPath" -ForegroundColor Cyan
+$handoff = Get-Content $HandoffPath -Raw | ConvertFrom-Json
 
-$orgName  = $cfg.tenant.orgName
-$vdcName  = $cfg.tenant.orgVdcName
-$destPg   = $cfg.portGroup.source + $cfg.portGroup.destinationSuffix
-if (-not $SourceNetworkName) { $SourceNetworkName = $cfg.portGroup.source }
-$destNetworkName = $SourceNetworkName + $cfg.portGroup.destinationSuffix
+# --- Resolve everything from the hand-off file --------------------------
+$orgName  = $handoff.tenant.orgName
+$vdcName  = $handoff.tenant.orgVdcName
+$destPg   = $handoff.destinationPortgroup
+$pgMoref  = $handoff.destinationPortgroupMoref
+if (-not $SourceNetworkName) { $SourceNetworkName = $handoff.sourcePortgroup }
+$destNetworkName = $SourceNetworkName + $handoff.destinationSuffix
 
+if ([string]::IsNullOrWhiteSpace($pgMoref)) {
+    throw "Hand-off file has no destinationPortgroupMoref - re-run step 1."
+}
+
+Write-Host "Hand-off created at    : $($handoff.createdAt)"
 Write-Host "Org                    : $orgName"
 Write-Host "Org VDC                : $vdcName"
 Write-Host "Source network (VCD)   : $SourceNetworkName"
 Write-Host "Dest network (VCD)     : $destNetworkName"
-Write-Host "Dest portgroup         : $destPg"
+Write-Host "Dest portgroup / moref : $destPg / $pgMoref"
 Write-Host ""
 
 # --- Log in to VCD ------------------------------------------------------
@@ -76,15 +100,8 @@ $vdcUuid = ($vdcRec.href -split '/')[-1]
 $vdcUrn  = "urn:vcloud:vdc:$vdcUuid"
 Write-Host "Org VDC URN: $vdcUrn"
 
-# --- 2. Find the moref of the new portgroup ----------------------------
-$pgRec = Get-VcdQuery -Session $session -Type 'portgroup' -Filter "name==$destPg" |
-    Where-Object { $_.portgroupType -eq 'DV_PORTGROUP' }
-if (-not $pgRec) { throw "DV portgroup not found: $destPg (run script 1 first)" }
-if (@($pgRec).Count -gt 1) { throw "Portgroup name is ambiguous: $destPg; cannot decide which one to import" }
-$pgMoref = $pgRec.moref
-Write-Host "portgroup moref: $pgMoref"
-
-# --- 3. Create the imported Org VDC Network ----------------------------
+# --- 2. Create the imported Org VDC Network ----------------------------
+#   The portgroup moref comes straight from step 1's hand-off file.
 $existingNet = Invoke-VcdOpenApi -Session $session `
     -Path "/cloudapi/1.0.0/orgVdcNetworks?filter=name==$destNetworkName"
 if ($existingNet.values | Where-Object { $_.orgVdc.id -eq $vdcUrn }) {
@@ -116,7 +133,7 @@ elseif ($PSCmdlet.ShouldProcess($destNetworkName, "Create imported Org VDC Netwo
     Write-Host "Created Org VDC Network: $destNetworkName (REALIZED)" -ForegroundColor Green
 }
 
-# --- 4. Find VMs attached to the source network ------------------------
+# --- 3. Find VMs attached to the source network ------------------------
 Write-Host ""
 Write-Host "Scanning Org '$orgName' for VMs attached to '$SourceNetworkName' ..." -ForegroundColor Cyan
 $vmRecords = Get-VcdQuery -Session $session -Type 'vm' `
@@ -152,7 +169,7 @@ if ($targets.Count -eq 0) {
 Write-Host "Found $($targets.Count) VM(s) to reconnect:" -ForegroundColor Yellow
 $targets | Format-Table Name, Status, NicIndexes -AutoSize
 
-# --- 5. Reconnect the NICs ---------------------------------------------
+# --- 4. Reconnect the NICs ---------------------------------------------
 $report = New-Object System.Collections.Generic.List[object]
 foreach ($t in $targets) {
     if (-not $PSCmdlet.ShouldProcess($t.Name, "Reconnect NIC(s) [$($t.NicIndexes)] from '$SourceNetworkName' to '$destNetworkName'")) {
@@ -181,3 +198,17 @@ foreach ($t in $targets) {
 Write-Host ""
 Write-Host "===== Result =====" -ForegroundColor Cyan
 $report | Format-Table -AutoSize
+
+# --- 5. Write the migration result next to the hand-off file -----------
+if (-not $WhatIfPreference) {
+    $resultPath = Join-Path (Split-Path $HandoffPath) 'migration-result.json'
+    [ordered]@{
+        completedAt      = (Get-Date).ToString('o')
+        sourceNetwork    = $SourceNetworkName
+        destNetwork      = $destNetworkName
+        org              = $orgName
+        orgVdc           = $vdcName
+        results          = $report
+    } | ConvertTo-Json -Depth 10 | Set-Content -Path $resultPath -Encoding UTF8
+    Write-Host "Migration result written: $resultPath" -ForegroundColor Green
+}
