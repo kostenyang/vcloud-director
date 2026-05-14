@@ -1,36 +1,111 @@
 # chunghwa-vcd
 
-中華電信 vCloud Director 10.6.1 — 租戶 VM 網卡切換工具。
+中華電信 **vCloud Director 10.6.1** — 租戶 (Org) VM 網卡切換工具。
 
-把租戶 (Org) 內的 VM 網卡,從「來源 portgroup」切換到「目的 portgroup」。
-拆成兩支 script:先在 vCenter 把 portgroup 建好,再從 VCD 租戶端匯入並重接網卡。
+把租戶內的 VM 網卡,從「來源 portgroup」切換到「目的 portgroup」。
+整個作業拆成兩支 script:**先在 vCenter 把 portgroup 建好,再從 VCD 租戶端匯入並重接網卡**。
 
-## 環境
+---
 
-- vCloud Director **10.6.1** (REST API version **40.0**)
-- portgroup 類型:**vDS 分散式 portgroup**
-- PowerShell 7+,需安裝 VMware PowerCLI (`Install-Module VMware.PowerCLI`)
+## 目錄
+
+- [運作原理](#運作原理)
+- [前置需求](#前置需求)
+- [安裝](#安裝)
+- [設定](#設定)
+- [使用流程](#使用流程)
+- [參數說明](#參數說明)
+- [檔案結構](#檔案結構)
+- [回滾 (Rollback)](#回滾-rollback)
+- [疑難排解](#疑難排解)
+- [注意事項](#注意事項)
+
+---
+
+## 運作原理
+
+```
+        ┌─────────────────────────┐         ┌──────────────────────────────┐
+        │   Script 1 (PowerCLI)   │         │   Script 2 (VCD REST API)    │
+        │   只動 vCenter           │         │   只動 vCloud Director        │
+        ├─────────────────────────┤         ├──────────────────────────────┤
+ vDS ──▶│ 複製來源 portgroup 設定  │         │ 1. System 管理員登入 VCD     │
+        │ 建立 <來源>-new          │────────▶│ 2. 找新 portgroup 的 moref   │
+        │ (VLAN/teaming/binding)  │         │ 3. 建 imported Org VDC 網路   │
+        └─────────────────────────┘         │ 4. 掃描接在來源網路的 VM      │
+                                            │ 5. 重接每張網卡到新網路       │
+                                            └──────────────────────────────┘
+```
+
+命名規則:**目的名稱 = 來源名稱 + 後綴**(預設 `-new`)。
+例:來源 portgroup `PG-Tenant-VLAN100` → 目的 portgroup `PG-Tenant-VLAN100-new`,
+對應的 Org VDC Network 也叫 `PG-Tenant-VLAN100-new`。
+
+---
+
+## 前置需求
+
+| 項目 | 需求 |
+|------|------|
+| vCloud Director | 10.6.1(REST API version `40.0`) |
+| portgroup 類型 | vDS **分散式 portgroup**(VCD 匯入網路只支援這種) |
+| PowerShell | 7.0 以上(script 用到 `-SkipCertificateCheck` 等 PS7 功能) |
+| VMware PowerCLI | 步驟 1 需要(`VMware.VimAutomation.Vds` 模組) |
+| vCenter 權限 | 在目標 vDS 上建立 portgroup 的權限 |
+| VCD 權限 | **System (provider) 管理員** — 匯入 portgroup 網路屬 provider 操作 |
+| 網路連線 | 執行機器需能連到 vCenter 與 VCD 的 443 |
+
+---
+
+## 安裝
+
+```powershell
+# 1. 取得程式碼
+git clone https://github.com/kostenyang/vcloud-director.git
+cd vcloud-director
+
+# 2. 安裝 PowerCLI(若尚未安裝)
+Install-Module VMware.PowerCLI -Scope CurrentUser
+
+# 3. 自簽憑證環境可關掉 PowerCLI 憑證檢查
+Set-PowerCLIConfiguration -InvalidCertificateAction Ignore -Confirm:$false
+```
+
+---
 
 ## 設定
 
-編輯 [config/config.json](config/config.json)。若不想把實際環境資訊 commit,
-複製成 `config/config.local.json`(已被 `.gitignore` 忽略),script 會自動優先採用。
+編輯 [config/config.json](config/config.json)。
 
-| 欄位 | 說明 |
-|------|------|
-| `vCenter.server` | vCenter FQDN |
-| `vCenter.vdsName` | 來源/目的 portgroup 所在的 vDS 名稱 |
-| `vcd.server` | VCD FQDN |
-| `vcd.apiVersion` | API 版本,10.6.1 為 `40.0` |
-| `vcd.org` | 登入用 org,provider 管理員填 `System` |
-| `vcd.skipCertificateCheck` | 自簽憑證環境設 `true` |
-| `tenant.orgName` | 租戶 Org 名稱 |
-| `tenant.orgVdcName` | 要匯入網路的 Org VDC 名稱 |
-| `portGroup.source` | 來源 portgroup 名稱 |
-| `portGroup.destinationSuffix` | 目的名稱後綴,預設 `-new` |
+> **建議**:不要把實際環境資訊 commit。複製一份成 `config/config.local.json`
+> (已被 `.gitignore` 忽略),兩支 script 都會自動優先採用 local 檔。
 
-> 命名規則:目的 portgroup / 目的 Org VDC Network 名稱 = 來源名稱 + 後綴。
-> 例:來源 `PG-Tenant-VLAN100` → 目的 `PG-Tenant-VLAN100-new`。
+```jsonc
+{
+  "vCenter": {
+    "server":  "vcenter.chunghwa.local",   // vCenter FQDN
+    "vdsName": "DSwitch-Prod"               // 來源/目的 portgroup 所在的 vDS
+  },
+  "vcd": {
+    "server":     "vcd.chunghwa.local",     // VCD FQDN
+    "apiVersion": "40.0",                   // 10.6.1 固定為 40.0
+    "org":        "System",                 // 登入 org,provider 管理員填 System
+    "skipCertificateCheck": true            // 自簽憑證設 true
+  },
+  "tenant": {
+    "orgName":    "ChunghwaOrg",             // 租戶 Org 名稱
+    "orgVdcName": "ChunghwaOrg-VDC"          // 要匯入網路的 Org VDC 名稱
+  },
+  "portGroup": {
+    "source":              "PG-Tenant-VLAN100", // 來源 portgroup 名稱
+    "destinationSuffix":   "-new"               // 目的名稱後綴
+  }
+}
+```
+
+帳號密碼**不寫在設定檔**,執行時用 `Get-Credential` 視窗輸入。
+
+---
 
 ## 使用流程
 
@@ -40,23 +115,52 @@
 pwsh ./scripts/1-New-DistributedPortGroup.ps1
 ```
 
-從來源 portgroup 複製設定(VLAN、teaming、binding),在同一個 vDS 上建立
-`<來源>-new`。只動 vCenter。
+從來源 portgroup 複製所有設定(VLAN、teaming、port binding),在同一個 vDS 上
+建立 `<來源>-new`。此步驟**只動 vCenter**,不碰 VCD。
+
+完成後會印出新 portgroup 的 moref 與 VLAN,方便核對。
 
 ### 步驟 2 — 匯入租戶並重接 VM 網卡
 
 ```powershell
-# 先演練,只列出會被影響的 VM,不做任何變更
+# 先演練:只列出會被影響的 VM 清單,不做任何變更
 pwsh ./scripts/2-Import-And-Switch-TenantNic.ps1 -WhatIf
 
-# 確認清單沒問題後正式執行
+# 確認清單沒問題後,正式執行
 pwsh ./scripts/2-Import-And-Switch-TenantNic.ps1
 ```
 
-1. 以 System 管理員登入 VCD
-2. 在指定 Org VDC 建立「已匯入 (imported)」的 Org VDC Network,backing 為步驟 1 的 portgroup
-3. 掃描該 Org 內所有網卡接在「來源網路」的 VM
-4. 改寫每台 VM 的 `networkConnectionSection`,把網卡重接到新網路
+執行內容:
+
+1. 以 System 管理員登入 VCD(API 40.0)
+2. 用 query service 找到步驟 1 portgroup 的 moref
+3. 在指定 Org VDC 建立「已匯入 (imported / OPAQUE)」的 Org VDC Network
+4. 掃描該 Org 內所有網卡接在「來源網路」的 VM
+5. 改寫每台 VM 的 `networkConnectionSection`,把網卡重接到新網路
+   (保留原本的 IP / MAC / IP 配置模式)
+
+最後會印出每台 VM 的成功/失敗結果表。
+
+---
+
+## 參數說明
+
+### `1-New-DistributedPortGroup.ps1`
+
+| 參數 | 預設 | 說明 |
+|------|------|------|
+| `-ConfigPath` | `..\config\config.json` | 設定檔路徑 |
+| `-WhatIf` | — | 演練模式,只顯示會做什麼,不實際建立 |
+
+### `2-Import-And-Switch-TenantNic.ps1`
+
+| 參數 | 預設 | 說明 |
+|------|------|------|
+| `-ConfigPath` | `..\config\config.json` | 設定檔路徑 |
+| `-SourceNetworkName` | `config.portGroup.source` | 租戶端「來源」Org VDC Network 名稱。當 VCD 裡的網路名稱與 portgroup 名稱不同時,用這個參數指定 |
+| `-WhatIf` | — | 演練模式,列出受影響 VM 清單但不變更 |
+
+---
 
 ## 檔案結構
 
@@ -66,16 +170,51 @@ chunghwa-vcd/
 │   └── config.json                       # 環境設定(可用 config.local.json 覆蓋)
 ├── lib/
 │   └── VcdRest.ps1                        # VCD REST API 共用函式
+│                                          #   Connect-VcdApi / Invoke-VcdOpenApi
+│                                          #   Invoke-VcdLegacyApi / Get-VcdQuery / Wait-VcdTask
 ├── scripts/
 │   ├── 1-New-DistributedPortGroup.ps1     # 步驟 1:建 portgroup (PowerCLI)
 │   └── 2-Import-And-Switch-TenantNic.ps1  # 步驟 2:匯入 + 重接網卡 (VCD REST)
+├── .gitignore
 └── README.md
 ```
 
+---
+
+## 回滾 (Rollback)
+
+若需要把網卡切回原本的網路:
+
+```powershell
+# 把來源/目的對調:用 -SourceNetworkName 指定「新網路」,
+# 並暫時把 config 的 source 改成新網路名稱(或另開一份 config.local.json)
+pwsh ./scripts/2-Import-And-Switch-TenantNic.ps1 -SourceNetworkName "PG-Tenant-VLAN100-new" -WhatIf
+```
+
+> 重接網卡前,建議先用 `-WhatIf` 把受影響 VM 清單(含原 IP)存檔備查。
+> portgroup 與 imported 網路本身不會被 script 刪除,確認無誤後再手動清掉舊的。
+
+---
+
+## 疑難排解
+
+| 症狀 | 可能原因 / 處理 |
+|------|----------------|
+| `登入失敗,沒有取得 access token` | 帳號非 System 管理員;或 `vcd.org` 設錯。provider 管理員 `org` 要填 `System` |
+| 憑證錯誤 / SSL 連線失敗 | `config.json` 的 `vcd.skipCertificateCheck` 設 `true`;PowerCLI 端執行 `Set-PowerCLIConfiguration -InvalidCertificateAction Ignore` |
+| `找不到 DV portgroup` | 步驟 1 尚未執行,或 portgroup 不在 query 範圍;確認 portgroup 類型是 vDS 分散式 |
+| `找不到 Org VDC` | `tenant.orgVdcName` 拼錯,或登入帳號看不到該 VDC |
+| Org VDC Network「未進入 REALIZED」 | VCD 端網路具現化失敗,到 VCD UI 看該網路的錯誤訊息;常見為 moref 對應的 vCenter 不只一個 |
+| 某些 VM 重接 `FAIL` | VM 可能鎖定中、vApp 有未完成的 task,或該版本不允許開機狀態下變更;稍後重跑(script 可重複執行,已重接的不受影響) |
+| `讀取網卡設定失敗,略過` | 該 VM 狀態異常(如 partially powered off);手動檢查後再處理 |
+
+---
+
 ## 注意事項
 
-- **先用 `-WhatIf` 跑步驟 2**,確認受影響的 VM 清單。
-- 步驟 2 假設租戶端「來源網路」名稱與 `portGroup.source` 相同;
-  若不同,用 `-SourceNetworkName` 參數指定。
-- 重接網卡會保留原本的 IP / MAC / 配置模式,只改變網卡連接的網路。
-- 匯入網路 (imported / DV_PORTGROUP backing) 屬 provider 操作,需 System 權限。
+- **步驟 2 一定先用 `-WhatIf` 跑過**,確認受影響的 VM 清單。
+- 兩支 script 都可**重複執行**:portgroup / Org VDC Network 已存在會跳過;已重接的網卡不會被重複處理。
+- 重接網卡會**保留原本的 IP / MAC / IP 配置模式**,只改變網卡所連接的網路。
+- 匯入網路(imported,DV_PORTGROUP backing)屬 **provider 操作**,務必用 System 帳號。
+- 帳密只透過 `Get-Credential` 即時輸入,不落地、不進 git。
+- 不同 VCD 小版本的 API 行為偶有差異,建議先在**測試租戶**驗證一台 VM 再大量套用。
