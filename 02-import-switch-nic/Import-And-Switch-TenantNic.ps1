@@ -1,28 +1,31 @@
 <#
 .SYNOPSIS
-  步驟 2 / 2 - 把 script 1 建好的 portgroup 匯入成租戶的 Org VDC Network,
-  並把該租戶內、原本接在「來源網路」的 VM 網卡重接到新網路。
+  Step 2 / 2 - Import the portgroup created by script 1 as a tenant Org VDC
+  Network, and reconnect the NICs of VMs in that tenant that are currently
+  attached to the "source network".
 
 .DESCRIPTION
-  流程:
-    1. 以 System 管理員登入 VCD (10.6.1 / API 40.0)
-    2. 用 query service 找到新 portgroup 的 moref
-    3. 用 OpenAPI 在指定 Org VDC 建立「已匯入 (imported / OPAQUE)」的 Org VDC Network
-       目的網路名稱 = 來源網路名稱 + 後綴 (-new)
-    4. 找出該 Org 內所有網卡接在「來源網路」的 VM
-    5. 透過 legacy API 改寫每台 VM 的 networkConnectionSection,把網卡重接到新網路
+  Flow:
+    1. Log in to VCD (10.6.1 / API 40.0) as a System administrator
+    2. Use the query service to find the moref of the new portgroup
+    3. Use the OpenAPI to create an "imported (OPAQUE)" Org VDC Network in the
+       target Org VDC. The destination network name = source network name + suffix (-new)
+    4. Find every VM in the Org whose NIC is attached to the "source network"
+    5. Use the legacy API to rewrite each VM's networkConnectionSection,
+       reconnecting the NIC to the new network
 
-  預設為 -WhatIf 演練模式以外的正式執行;先用 -WhatIf 看清單再正式跑。
+  Run with -WhatIf first to review the affected VM list before applying.
 
 .PARAMETER ConfigPath
-  config.json 路徑,預設 ..\config\config.json (若有 config.local.json 會優先採用)。
+  Path to config.json. Defaults to ..\config\config.json
+  (config.local.json is used in preference if present).
 
 .PARAMETER SourceNetworkName
-  租戶端「來源」Org VDC Network 名稱。預設取 config 的 portGroup.source。
+  The tenant-side "source" Org VDC Network name. Defaults to config portGroup.source.
 
 .EXAMPLE
-  pwsh ./scripts/2-Import-And-Switch-TenantNic.ps1 -WhatIf      # 先演練
-  pwsh ./scripts/2-Import-And-Switch-TenantNic.ps1             # 正式執行
+  pwsh ./02-import-switch-nic/Import-And-Switch-TenantNic.ps1 -WhatIf   # dry run
+  pwsh ./02-import-switch-nic/Import-And-Switch-TenantNic.ps1           # apply
 #>
 [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
 param(
@@ -32,7 +35,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-# --- 載入設定與共用函式 -------------------------------------------------
+# --- Load configuration and shared functions ---------------------------
 $localCfg = Join-Path (Split-Path $ConfigPath) 'config.local.json'
 if (Test-Path $localCfg) { $ConfigPath = $localCfg }
 Write-Host "讀取設定檔: $ConfigPath" -ForegroundColor Cyan
@@ -53,14 +56,14 @@ Write-Host "目的網路 (VCD)   : $destNetworkName"
 Write-Host "目的 portgroup   : $destPg"
 Write-Host ""
 
-# --- 登入 VCD -----------------------------------------------------------
+# --- Log in to VCD ------------------------------------------------------
 $vcdCred = Get-Credential -Message "VCD System 管理員帳密 ($($cfg.vcd.server))"
 $session = Connect-VcdApi -Server $cfg.vcd.server -Credential $vcdCred `
     -Org $cfg.vcd.org -ApiVersion $cfg.vcd.apiVersion `
     -SkipCertificateCheck:$cfg.vcd.skipCertificateCheck
 Write-Host "已登入 VCD: $($cfg.vcd.server)" -ForegroundColor Green
 
-# --- 1. 找 Org / Org VDC ------------------------------------------------
+# --- 1. Resolve Org / Org VDC ------------------------------------------
 $orgList = Invoke-VcdLegacyApi -Session $session -Uri '/api/org'
 $org = $orgList.OrgList.Org | Where-Object { $_.name -eq $orgName }
 if (-not $org) { throw "找不到 Org: $orgName" }
@@ -73,7 +76,7 @@ $vdcUuid = ($vdcRec.href -split '/')[-1]
 $vdcUrn  = "urn:vcloud:vdc:$vdcUuid"
 Write-Host "Org VDC URN: $vdcUrn"
 
-# --- 2. 找新 portgroup 的 moref ----------------------------------------
+# --- 2. Find the moref of the new portgroup ----------------------------
 $pgRec = Get-VcdQuery -Session $session -Type 'portgroup' -Filter "name==$destPg" |
     Where-Object { $_.portgroupType -eq 'DV_PORTGROUP' }
 if (-not $pgRec) { throw "找不到 DV portgroup: $destPg (請先跑 script 1)" }
@@ -81,7 +84,7 @@ if (@($pgRec).Count -gt 1) { throw "portgroup 名稱重複: $destPg,無法判斷
 $pgMoref = $pgRec.moref
 Write-Host "portgroup moref: $pgMoref"
 
-# --- 3. 建立 imported Org VDC Network -----------------------------------
+# --- 3. Create the imported Org VDC Network ----------------------------
 $existingNet = Invoke-VcdOpenApi -Session $session `
     -Path "/cloudapi/1.0.0/orgVdcNetworks?filter=name==$destNetworkName"
 if ($existingNet.values | Where-Object { $_.orgVdc.id -eq $vdcUrn }) {
@@ -90,7 +93,7 @@ if ($existingNet.values | Where-Object { $_.orgVdc.id -eq $vdcUrn }) {
 elseif ($PSCmdlet.ShouldProcess($destNetworkName, "在 $vdcName 建立 imported Org VDC Network (backing: $pgMoref)")) {
     $body = @{
         name               = $destNetworkName
-        description        = "Imported from DV portgroup $destPg (建立者: 2-Import-And-Switch-TenantNic.ps1)"
+        description        = "Imported from DV portgroup $destPg (created by Import-And-Switch-TenantNic.ps1)"
         orgVdc             = @{ id = $vdcUrn }
         networkType        = 'OPAQUE'
         backingNetworkId   = $pgMoref
@@ -98,7 +101,7 @@ elseif ($PSCmdlet.ShouldProcess($destNetworkName, "在 $vdcName 建立 imported 
     }
     $null = Invoke-VcdOpenApi -Session $session -Path '/cloudapi/1.0.0/orgVdcNetworks' -Method Post -Body $body
 
-    # 輪詢直到網路出現且 status = REALIZED
+    # Poll until the network appears and reaches status = REALIZED
     $deadline = (Get-Date).AddMinutes(5)
     do {
         Start-Sleep -Seconds 4
@@ -113,7 +116,7 @@ elseif ($PSCmdlet.ShouldProcess($destNetworkName, "在 $vdcName 建立 imported 
     Write-Host "已建立 Org VDC Network: $destNetworkName (REALIZED)" -ForegroundColor Green
 }
 
-# --- 4. 找出接在來源網路的 VM ------------------------------------------
+# --- 4. Find VMs attached to the source network ------------------------
 Write-Host ""
 Write-Host "掃描 Org '$orgName' 內接在 '$SourceNetworkName' 的 VM ..." -ForegroundColor Cyan
 $vmRecords = Get-VcdQuery -Session $session -Type 'vm' `
@@ -149,7 +152,7 @@ if ($targets.Count -eq 0) {
 Write-Host "找到 $($targets.Count) 台 VM 需要重接:" -ForegroundColor Yellow
 $targets | Format-Table Name, Status, NicIndexes -AutoSize
 
-# --- 5. 重接網卡 --------------------------------------------------------
+# --- 5. Reconnect the NICs ---------------------------------------------
 $report = New-Object System.Collections.Generic.List[object]
 foreach ($t in $targets) {
     if (-not $PSCmdlet.ShouldProcess($t.Name, "把網卡 [$($t.NicIndexes)] 從 '$SourceNetworkName' 重接到 '$destNetworkName'")) {

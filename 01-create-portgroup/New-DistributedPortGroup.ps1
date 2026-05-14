@@ -1,42 +1,46 @@
 <#
 .SYNOPSIS
-  步驟 1 / 2 - 在 vCenter 的 vDS 上建立「目的端」分散式 portgroup。
+  Step 1 / 2 - Create the "destination" distributed portgroup on a vCenter vDS.
 
 .DESCRIPTION
-  從來源 portgroup 複製設定 (VLAN、binding、teaming 等),
-  建立一個名稱為「來源名稱 + 後綴 (-new)」的新 portgroup。
+  Clones the settings (VLAN, binding, teaming, etc.) from the source portgroup
+  and creates a new portgroup named "<source name> + suffix (-new)".
 
-  來源 vDS 與目的 vDS 是「分開的變數」:可以把目的 portgroup 建在
-  「另一隻 vDS」上(來源 portgroup 在 A、目的建到 B)。兩者相同時就是
-  在同一隻 vDS 上複製。
+  The source vDS and destination vDS are separate variables: the destination
+  portgroup can be created on a *different* vDS (source on A, destination on B).
+  When both are the same, it simply clones within the same vDS.
 
-  這支只動 vCenter,不碰 VCD。建好之後才跑 script 2 匯入租戶。
+  This script only touches vCenter, not VCD. Run script 2 afterwards to import
+  the network into the tenant and reconnect the NICs.
 
 .PARAMETER ConfigPath
-  config.json 路徑,預設 ..\config\config.json(若有 config.local.json 會優先採用)。
+  Path to config.json. Defaults to ..\config\config.json
+  (config.local.json is used in preference if present).
 
 .PARAMETER SourceVdsName
-  來源 portgroup 所在的 vDS。預設取 config 的 vCenter.sourceVdsName。
+  vDS that hosts the source portgroup. Defaults to config vCenter.sourceVdsName.
 
 .PARAMETER DestinationVdsName
-  目的 portgroup 要建在哪一隻 vDS。預設取 config 的 vCenter.destinationVdsName。
-  要建到「另一隻 vDS」就用這個參數(或改 config)指定。
+  vDS on which the destination portgroup is created. Defaults to
+  config vCenter.destinationVdsName. Use this parameter (or config) to target
+  a different vDS.
 
 .PARAMETER Rollback
-  回滾機制:刪除先前建立的「目的 portgroup」。
-  若仍有 VM 連在該 portgroup 上會中止,請先用 script 2 把網卡切回去。
+  Rollback mechanism: delete the previously created destination portgroup.
+  Aborts if any VM is still connected to it - run script 2 first to move the
+  NICs back.
 
 .EXAMPLE
-  pwsh ./scripts/1-New-DistributedPortGroup.ps1
-  # 依 config 建立目的 portgroup
+  pwsh ./01-create-portgroup/New-DistributedPortGroup.ps1
+  # Create the destination portgroup using config values
 
 .EXAMPLE
-  pwsh ./scripts/1-New-DistributedPortGroup.ps1 -DestinationVdsName "DSwitch-DR"
-  # 把目的 portgroup 建到另一隻 vDS「DSwitch-DR」
+  pwsh ./01-create-portgroup/New-DistributedPortGroup.ps1 -DestinationVdsName "DSwitch-DR"
+  # Create the destination portgroup on a different vDS "DSwitch-DR"
 
 .EXAMPLE
-  pwsh ./scripts/1-New-DistributedPortGroup.ps1 -Rollback
-  # 回滾:刪掉建好的目的 portgroup
+  pwsh ./01-create-portgroup/New-DistributedPortGroup.ps1 -Rollback
+  # Rollback: delete the destination portgroup that was created
 #>
 [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
 param(
@@ -48,14 +52,14 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-# --- 載入設定 -----------------------------------------------------------
+# --- Load configuration -------------------------------------------------
 $localCfg = Join-Path (Split-Path $ConfigPath) 'config.local.json'
 if (Test-Path $localCfg) { $ConfigPath = $localCfg }
 Write-Host "讀取設定檔: $ConfigPath" -ForegroundColor Cyan
 $cfg = Get-Content $ConfigPath -Raw | ConvertFrom-Json
 
-# --- 變數:來源/目的 vDS 與 portgroup 名稱 ------------------------------
-# 參數優先,其次 config
+# --- Variables: source/destination vDS and portgroup names --------------
+# Parameters take precedence, then config
 if (-not $SourceVdsName)      { $SourceVdsName      = $cfg.vCenter.sourceVdsName }
 if (-not $DestinationVdsName) { $DestinationVdsName = $cfg.vCenter.destinationVdsName }
 if (-not $SourceVdsName)      { throw "未指定來源 vDS(-SourceVdsName 或 config.vCenter.sourceVdsName)" }
@@ -78,7 +82,7 @@ Write-Host "已連線 vCenter: $($vc.Name)" -ForegroundColor Green
 try {
     $destVds = Get-VDSwitch -Name $DestinationVdsName
 
-    # ===================== 回滾模式 =====================
+    # ===================== Rollback mode =====================
     if ($Rollback) {
         $existing = Get-VDPortgroup -VDSwitch $destVds -Name $destPg -ErrorAction SilentlyContinue
         if (-not $existing) {
@@ -86,10 +90,10 @@ try {
             return
         }
 
-        # 安全檢查:仍有 VM 連著就不刪
+        # Safety check: do not delete while VMs are still connected
         $connectedVms = $existing | Get-VM -ErrorAction SilentlyContinue
         if ($connectedVms) {
-            Write-Warning "以下 VM 仍連在 '$destPg',請先用 scripts/2-Import-And-Switch-TenantNic.ps1 把網卡切回去:"
+            Write-Warning "以下 VM 仍連在 '$destPg',請先用 02-import-switch-nic/Import-And-Switch-TenantNic.ps1 把網卡切回去:"
             $connectedVms | Select-Object Name, PowerState | Format-Table -AutoSize
             throw "回滾中止:目的 portgroup 仍有 VM 連接。"
         }
@@ -101,11 +105,11 @@ try {
         return
     }
 
-    # ===================== 建立模式 =====================
+    # ===================== Create mode =====================
     $srcVds = Get-VDSwitch -Name $SourceVdsName
     $src    = Get-VDPortgroup -VDSwitch $srcVds -Name $sourcePg
 
-    # VLAN 資訊(僅作 log,New-VDPortgroup -ReferencePortgroup 會一併複製)
+    # VLAN info (log only; New-VDPortgroup -ReferencePortgroup clones it anyway)
     $vlanCfg = $src.Extensiondata.Config.DefaultPortConfig.Vlan
     Write-Host "來源 VLAN 設定: $($vlanCfg.VlanId)" -ForegroundColor Yellow
 
@@ -122,8 +126,8 @@ try {
         Write-Host "  Key (moref) : $($new.Key)"
         Write-Host "  VLAN        : $($new.Extensiondata.Config.DefaultPortConfig.Vlan.VlanId)"
         Write-Host ""
-        Write-Host "下一步: 跑 scripts/2-Import-And-Switch-TenantNic.ps1 匯入租戶並重接網卡。" -ForegroundColor Cyan
-        Write-Host "若要復原: pwsh ./scripts/1-New-DistributedPortGroup.ps1 -Rollback" -ForegroundColor DarkGray
+        Write-Host "下一步: 跑 02-import-switch-nic/Import-And-Switch-TenantNic.ps1 匯入租戶並重接網卡。" -ForegroundColor Cyan
+        Write-Host "若要復原: pwsh ./01-create-portgroup/New-DistributedPortGroup.ps1 -Rollback" -ForegroundColor DarkGray
     }
 }
 finally {

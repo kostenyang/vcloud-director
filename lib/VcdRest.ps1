@@ -1,13 +1,14 @@
 <#
 .SYNOPSIS
-  vCloud Director 10.6.1 REST API 共用函式 (API version 40.0)。
-  由 scripts\2-Import-And-Switch-TenantNic.ps1 dot-source 載入。
+  Shared helper functions for the vCloud Director 10.6.1 REST API (API version 40.0).
+  Dot-sourced by 02-import-switch-nic\Import-And-Switch-TenantNic.ps1.
 
-  提供:
-    Connect-VcdApi      - 登入 VCD,取得 bearer token,回傳 session 物件
-    Invoke-VcdOpenApi   - 呼叫 /cloudapi (OpenAPI, JSON)
-    Invoke-VcdLegacyApi - 呼叫 /api (legacy, XML)
-    Get-VcdQuery        - 呼叫 query service (/api/query)
+  Provides:
+    Connect-VcdApi      - Log in to VCD, obtain a bearer token, return a session object
+    Invoke-VcdOpenApi   - Call /cloudapi (OpenAPI, JSON)
+    Invoke-VcdLegacyApi - Call /api (legacy, XML)
+    Get-VcdQuery        - Call the query service (/api/query)
+    Wait-VcdTask        - Poll a VCD task until it completes
 #>
 
 function Connect-VcdApi {
@@ -21,7 +22,7 @@ function Connect-VcdApi {
     )
 
     $base = "https://$Server"
-    # System (provider) 管理員走 /sessions/provider,租戶管理員走 /sessions
+    # System (provider) admins use /sessions/provider; tenant admins use /sessions
     $sessionUri = if ($Org -eq 'System') {
         "$base/cloudapi/1.0.0/sessions/provider"
     } else {
@@ -63,7 +64,7 @@ function Invoke-VcdOpenApi {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)] $Session,
-        [Parameter(Mandatory)] [string] $Path,          # 例如 /cloudapi/1.0.0/orgVdcNetworks
+        [Parameter(Mandatory)] [string] $Path,          # e.g. /cloudapi/1.0.0/orgVdcNetworks
         [string] $Method = 'Get',
         $Body
     )
@@ -88,7 +89,7 @@ function Invoke-VcdLegacyApi {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)] $Session,
-        [Parameter(Mandatory)] [string] $Uri,           # 完整 URL 或 /api/... 路徑
+        [Parameter(Mandatory)] [string] $Uri,           # Full URL or a /api/... path
         [string] $Method = 'Get',
         [xml] $Body,
         [string] $ContentType
@@ -115,7 +116,7 @@ function Get-VcdQuery {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)] $Session,
-        [Parameter(Mandatory)] [string] $Type,          # 例如 vm, orgVdcNetwork
+        [Parameter(Mandatory)] [string] $Type,          # e.g. vm, orgVdcNetwork
         [string] $Filter,
         [string] $Format = 'records',
         [int] $PageSize = 128
