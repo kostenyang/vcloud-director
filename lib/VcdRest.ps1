@@ -50,7 +50,7 @@ function Connect-VcdApi {
 
     $null = Invoke-RestMethod @irmArgs
     $token = $respHeaders['X-VMWARE-VCLOUD-ACCESS-TOKEN']
-    if (-not $token) { throw "登入失敗,沒有取得 access token (HTTP $status)" }
+    if (-not $token) { throw "Login failed: no access token returned (HTTP $status)" }
 
     [pscustomobject]@{
         BaseUrl              = $base
@@ -149,8 +149,8 @@ function Wait-VcdTask {
         $statusVal = $task.Task.status
         if ($statusVal -eq 'success') { return $true }
         if ($statusVal -in @('error','aborted','canceled')) {
-            throw "VCD task 失敗 ($statusVal): $($task.Task.Error.message)"
+            throw "VCD task failed ($statusVal): $($task.Task.Error.message)"
         }
     } while ($sw.Elapsed.TotalSeconds -lt $TimeoutSec)
-    throw "VCD task 等待逾時 ($TimeoutSec 秒): $TaskHref"
+    throw "Timed out waiting for VCD task ($TimeoutSec s): $TaskHref"
 }

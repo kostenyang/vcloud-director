@@ -55,29 +55,29 @@ $ErrorActionPreference = 'Stop'
 # --- Load configuration -------------------------------------------------
 $localCfg = Join-Path (Split-Path $ConfigPath) 'config.local.json'
 if (Test-Path $localCfg) { $ConfigPath = $localCfg }
-Write-Host "讀取設定檔: $ConfigPath" -ForegroundColor Cyan
+Write-Host "Loading config file: $ConfigPath" -ForegroundColor Cyan
 $cfg = Get-Content $ConfigPath -Raw | ConvertFrom-Json
 
 # --- Variables: source/destination vDS and portgroup names --------------
 # Parameters take precedence, then config
 if (-not $SourceVdsName)      { $SourceVdsName      = $cfg.vCenter.sourceVdsName }
 if (-not $DestinationVdsName) { $DestinationVdsName = $cfg.vCenter.destinationVdsName }
-if (-not $SourceVdsName)      { throw "未指定來源 vDS(-SourceVdsName 或 config.vCenter.sourceVdsName)" }
-if (-not $DestinationVdsName) { throw "未指定目的 vDS(-DestinationVdsName 或 config.vCenter.destinationVdsName)" }
+if (-not $SourceVdsName)      { throw "Source vDS not specified (-SourceVdsName or config.vCenter.sourceVdsName)" }
+if (-not $DestinationVdsName) { throw "Destination vDS not specified (-DestinationVdsName or config.vCenter.destinationVdsName)" }
 
 $sourcePg = $cfg.portGroup.source
 $destPg   = $cfg.portGroup.source + $cfg.portGroup.destinationSuffix
 
-Write-Host "來源 vDS / portgroup : $SourceVdsName / $sourcePg"
-Write-Host "目的 vDS / portgroup : $DestinationVdsName / $destPg"
-Write-Host "模式                 : $(if ($Rollback) { 'ROLLBACK(刪除目的 portgroup)' } else { '建立目的 portgroup' })" -ForegroundColor $(if ($Rollback) { 'Magenta' } else { 'White' })
+Write-Host "Source vDS / portgroup      : $SourceVdsName / $sourcePg"
+Write-Host "Destination vDS / portgroup : $DestinationVdsName / $destPg"
+Write-Host "Mode                        : $(if ($Rollback) { 'ROLLBACK (delete destination portgroup)' } else { 'CREATE destination portgroup' })" -ForegroundColor $(if ($Rollback) { 'Magenta' } else { 'White' })
 
 # --- PowerCLI ------------------------------------------------------------
 Import-Module VMware.VimAutomation.Vds -ErrorAction Stop
 
-$viCred = Get-Credential -Message "vCenter 帳密 ($($cfg.vCenter.server))"
+$viCred = Get-Credential -Message "vCenter credentials ($($cfg.vCenter.server))"
 $vc = Connect-VIServer -Server $cfg.vCenter.server -Credential $viCred
-Write-Host "已連線 vCenter: $($vc.Name)" -ForegroundColor Green
+Write-Host "Connected to vCenter: $($vc.Name)" -ForegroundColor Green
 
 try {
     $destVds = Get-VDSwitch -Name $DestinationVdsName
@@ -86,21 +86,21 @@ try {
     if ($Rollback) {
         $existing = Get-VDPortgroup -VDSwitch $destVds -Name $destPg -ErrorAction SilentlyContinue
         if (-not $existing) {
-            Write-Warning "目的 portgroup '$destPg' 不存在於 vDS '$DestinationVdsName',無需回滾。"
+            Write-Warning "Destination portgroup '$destPg' does not exist on vDS '$DestinationVdsName'; nothing to roll back."
             return
         }
 
         # Safety check: do not delete while VMs are still connected
         $connectedVms = $existing | Get-VM -ErrorAction SilentlyContinue
         if ($connectedVms) {
-            Write-Warning "以下 VM 仍連在 '$destPg',請先用 02-import-switch-nic/Import-And-Switch-TenantNic.ps1 把網卡切回去:"
+            Write-Warning "The following VMs are still connected to '$destPg'. Run 02-import-switch-nic/Import-And-Switch-TenantNic.ps1 first to move the NICs back:"
             $connectedVms | Select-Object Name, PowerState | Format-Table -AutoSize
-            throw "回滾中止:目的 portgroup 仍有 VM 連接。"
+            throw "Rollback aborted: destination portgroup still has connected VMs."
         }
 
-        if ($PSCmdlet.ShouldProcess($destPg, "從 vDS '$DestinationVdsName' 刪除 portgroup")) {
+        if ($PSCmdlet.ShouldProcess($destPg, "Delete portgroup from vDS '$DestinationVdsName'")) {
             Remove-VDPortgroup -VDPortgroup $existing -Confirm:$false
-            Write-Host "已刪除 portgroup: $destPg(回滾完成)" -ForegroundColor Green
+            Write-Host "Deleted portgroup: $destPg (rollback complete)" -ForegroundColor Green
         }
         return
     }
@@ -111,23 +111,23 @@ try {
 
     # VLAN info (log only; New-VDPortgroup -ReferencePortgroup clones it anyway)
     $vlanCfg = $src.Extensiondata.Config.DefaultPortConfig.Vlan
-    Write-Host "來源 VLAN 設定: $($vlanCfg.VlanId)" -ForegroundColor Yellow
+    Write-Host "Source VLAN config: $($vlanCfg.VlanId)" -ForegroundColor Yellow
 
     $existing = Get-VDPortgroup -VDSwitch $destVds -Name $destPg -ErrorAction SilentlyContinue
     if ($existing) {
-        Write-Warning "目的 portgroup '$destPg' 已存在於 vDS '$DestinationVdsName',跳過建立。"
+        Write-Warning "Destination portgroup '$destPg' already exists on vDS '$DestinationVdsName'; skipping creation."
         return
     }
 
-    if ($PSCmdlet.ShouldProcess($destPg, "在 vDS '$DestinationVdsName' 上建立(複製自 '$SourceVdsName/$sourcePg')")) {
+    if ($PSCmdlet.ShouldProcess($destPg, "Create on vDS '$DestinationVdsName' (cloned from '$SourceVdsName/$sourcePg')")) {
         $new = New-VDPortgroup -VDSwitch $destVds -Name $destPg -ReferencePortgroup $src
-        Write-Host "已建立 portgroup: $($new.Name)" -ForegroundColor Green
+        Write-Host "Created portgroup: $($new.Name)" -ForegroundColor Green
         Write-Host "  vDS         : $DestinationVdsName"
         Write-Host "  Key (moref) : $($new.Key)"
         Write-Host "  VLAN        : $($new.Extensiondata.Config.DefaultPortConfig.Vlan.VlanId)"
         Write-Host ""
-        Write-Host "下一步: 跑 02-import-switch-nic/Import-And-Switch-TenantNic.ps1 匯入租戶並重接網卡。" -ForegroundColor Cyan
-        Write-Host "若要復原: pwsh ./01-create-portgroup/New-DistributedPortGroup.ps1 -Rollback" -ForegroundColor DarkGray
+        Write-Host "Next step: run 02-import-switch-nic/Import-And-Switch-TenantNic.ps1 to import into the tenant and reconnect NICs." -ForegroundColor Cyan
+        Write-Host "To undo:   pwsh ./01-create-portgroup/New-DistributedPortGroup.ps1 -Rollback" -ForegroundColor DarkGray
     }
 }
 finally {
