@@ -39,15 +39,23 @@
 #>
 [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
 param(
-    [string] $ConfigPath  = "$PSScriptRoot\..\config\config.json",
-    [string] $HandoffPath = "$PSScriptRoot\..\state\portgroup-handoff.json",
+    [string] $ConfigPath,
+    [string] $HandoffPath,
     [string] $SourceNetworkName
 )
 
 $ErrorActionPreference = 'Stop'
 
+# --- Auto-detect repo layout (flat vs nested) ---------------------------
+# - Nested (default repo layout):   <repo>\02-import-switch-nic\this.ps1 + <repo>\lib\ + <repo>\config\
+# - Flat (single working folder):   <dir>\this.ps1 + <dir>\lib\ + <dir>\config\
+$baseDir = if (Test-Path (Join-Path $PSScriptRoot 'lib')) { $PSScriptRoot }
+           else { (Resolve-Path (Join-Path $PSScriptRoot '..')).Path }
+if (-not $ConfigPath)  { $ConfigPath  = Join-Path $baseDir 'config\config.json' }
+if (-not $HandoffPath) { $HandoffPath = Join-Path $baseDir 'state\portgroup-handoff.json' }
+
 # --- Load shared functions, config (VCD connection) and hand-off file ---
-. "$PSScriptRoot\..\lib\VcdRest.ps1"
+. (Join-Path $baseDir 'lib\VcdRest.ps1')
 
 $localCfg = Join-Path (Split-Path $ConfigPath) 'config.local.json'
 if (Test-Path $localCfg) { $ConfigPath = $localCfg }

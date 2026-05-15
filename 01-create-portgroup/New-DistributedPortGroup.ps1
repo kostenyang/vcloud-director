@@ -53,14 +53,22 @@
 #>
 [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
 param(
-    [string] $ConfigPath  = "$PSScriptRoot\..\config\config.json",
-    [string] $HandoffPath = "$PSScriptRoot\..\state\portgroup-handoff.json",
+    [string] $ConfigPath,
+    [string] $HandoffPath,
     [string] $SourceVdsName,
     [string] $DestinationVdsName,
     [switch] $Rollback
 )
 
 $ErrorActionPreference = 'Stop'
+
+# --- Auto-detect repo layout (flat vs nested) ---------------------------
+# - Nested (default repo layout):   <repo>\01-create-portgroup\this.ps1 + <repo>\config\
+# - Flat (single working folder):   <dir>\this.ps1 + <dir>\config\
+$baseDir = if (Test-Path (Join-Path $PSScriptRoot 'config')) { $PSScriptRoot }
+           else { (Resolve-Path (Join-Path $PSScriptRoot '..')).Path }
+if (-not $ConfigPath)  { $ConfigPath  = Join-Path $baseDir 'config\config.json' }
+if (-not $HandoffPath) { $HandoffPath = Join-Path $baseDir 'state\portgroup-handoff.json' }
 
 # --- Load configuration -------------------------------------------------
 $localCfg = Join-Path (Split-Path $ConfigPath) 'config.local.json'
