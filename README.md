@@ -272,6 +272,10 @@ Backing 選那個 vDS portgroup → Submit
 
 送完輪詢直到 `status == REALIZED` 才寫 hand-off,沒 REALIZED 會 throw、不會繼續。
 
+> Step 2 還會**從來源 Org VDC Network 把 subnets(gateway / prefix / DNS / IP pool)抄到新網路**
+> — 這樣 IP scope 跟原來完全一樣,VM 切過去 IP 不需要動。所以**來源網路必須先存在**
+> (本來就會 — VM 接在它上面)。沒找到來源會 throw、不會繼續。
+
 ### 已存在時的行為
 
 Step 2 跑前會先 `GET /cloudapi/1.0.0/orgVdcNetworks?filter=name==<目的網路名>` 檢查;

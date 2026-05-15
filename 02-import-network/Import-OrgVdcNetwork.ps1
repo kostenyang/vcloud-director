@@ -12,6 +12,11 @@
   This script does ONLY the network import. NIC reconnection lives in step 3
   (03-switch-nics\Switch-TenantVmNics.ps1).
 
+  The new (destination) Org VDC Network mirrors the subnet info (gateway,
+  prefix, DNS, IP pools) from the SOURCE Org VDC Network in the same Org VDC,
+  so the source must already exist (it has the VMs you are migrating off).
+  This means the IP scope is preserved across the backing swap.
+
   How the target Org VDC is identified (in priority order):
     1. -OrgVdcUrn parameter
     2. tenant.orgVdcId set in config.json (passed through portgroup hand-off
@@ -154,10 +159,33 @@ Pick the right URN above and either:
     Write-Host "Org VDC URN: $vdcUrn"
 }
 
-# --- 3. Create the imported Org VDC Network ----------------------------
+# --- 3. Helper: find a network by name within the target VDC -----------
+# Response sometimes carries 'ownerRef', sometimes legacy 'orgVdc' - check both.
+function Find-VdcNetwork {
+    param($Resp, $VdcUrn)
+    $Resp.values | Where-Object {
+        ($_.ownerRef -and $_.ownerRef.id -eq $VdcUrn) -or
+        ($_.orgVdc   -and $_.orgVdc.id   -eq $VdcUrn)
+    } | Select-Object -First 1
+}
+
+# --- 4. Look up the source Org VDC Network to copy its subnets ---------
+# VCD requires gateway+prefix on imported networks. We mirror them from the
+# source network so the new network shares the same IP scope (the migration
+# is just a backing swap; VMs keep their IPs).
+Write-Host "Looking up source Org VDC Network '$sourceNetworkName' for subnet info..." -ForegroundColor Cyan
+$srcResp = Invoke-VcdOpenApi -Session $session -Path "/cloudapi/1.0.0/orgVdcNetworks?filter=name==$sourceNetworkName"
+$srcNet  = Find-VdcNetwork -Resp $srcResp -VdcUrn $vdcUrn
+if (-not $srcNet) {
+    throw "Source Org VDC Network '$sourceNetworkName' not found in '$vdcName'. Step 2 copies subnet info (gateway/prefix/IP pools) from the source network onto the destination, so the source must already exist."
+}
+$srcSubnets = $srcNet.subnets
+Write-Host "  Source subnets: $((@($srcSubnets.values) | ForEach-Object { "$($_.gateway)/$($_.prefixLength)" }) -join ', ')"
+
+# --- 5. Create the imported Org VDC Network ----------------------------
 $existingNet = Invoke-VcdOpenApi -Session $session `
     -Path "/cloudapi/1.0.0/orgVdcNetworks?filter=name==$destNetworkName"
-$existing = $existingNet.values | Where-Object { $_.orgVdc.id -eq $vdcUrn }
+$existing = Find-VdcNetwork -Resp $existingNet -VdcUrn $vdcUrn
 
 if ($existing) {
     Write-Warning "Org VDC Network '$destNetworkName' already exists in $vdcName; skipping creation."
@@ -167,10 +195,11 @@ elseif ($PSCmdlet.ShouldProcess($destNetworkName, "Create imported Org VDC Netwo
     $body = @{
         name               = $destNetworkName
         description        = "Imported from DV portgroup $destPg (created by Import-OrgVdcNetwork.ps1)"
-        orgVdc             = @{ id = $vdcUrn }
+        ownerRef           = @{ id = $vdcUrn }      # newer VCD API uses ownerRef, not orgVdc
         networkType        = 'OPAQUE'
         backingNetworkId   = $pgMoref
         backingNetworkType = 'DV_PORTGROUP'
+        subnets            = $srcSubnets             # mirror gateway/prefix from source
     }
     $null = Invoke-VcdOpenApi -Session $session -Path '/cloudapi/1.0.0/orgVdcNetworks' -Method Post -Body $body
 
@@ -180,7 +209,7 @@ elseif ($PSCmdlet.ShouldProcess($destNetworkName, "Create imported Org VDC Netwo
         Start-Sleep -Seconds 4
         $check = Invoke-VcdOpenApi -Session $session `
             -Path "/cloudapi/1.0.0/orgVdcNetworks?filter=name==$destNetworkName"
-        $net = $check.values | Where-Object { $_.orgVdc.id -eq $vdcUrn }
+        $net = Find-VdcNetwork -Resp $check -VdcUrn $vdcUrn
     } while (-not ($net -and $net.status -eq 'REALIZED') -and (Get-Date) -lt $deadline)
 
     if (-not ($net -and $net.status -eq 'REALIZED')) {

@@ -88,9 +88,12 @@ $session = Connect-VcdApi -Server $cfg.vcd.server -Credential $vcdCred `
 Write-Host "Logged in to VCD: $($cfg.vcd.server)" -ForegroundColor Green
 
 # --- 1. Find VMs attached to the source network ------------------------
+# Use adminVM (provider query type) - the user-facing 'vm' query does not
+# expose 'org' as a filterable field; adminVM does, and System admin can
+# use it to scope the scan to a single tenant org.
 Write-Host ""
 Write-Host "Scanning Org '$orgName' for VMs attached to '$SourceNetworkName' ..." -ForegroundColor Cyan
-$vmRecords = Get-VcdQuery -Session $session -Type 'vm' `
+$vmRecords = Get-VcdQuery -Session $session -Type 'adminVM' `
     -Filter "isVAppTemplate==false;org==$orgHref"
 
 $targets = New-Object System.Collections.Generic.List[object]
