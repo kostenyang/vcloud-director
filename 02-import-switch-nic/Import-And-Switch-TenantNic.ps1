@@ -121,10 +121,11 @@ else {
     # Use adminOrgVdc (provider query type) - the user-facing 'orgVdc' query
     # does NOT expose 'org'/'orgName' as filterable fields, only adminOrgVdc does.
     $vdcRec = @(Get-VcdQuery -Session $session -Type 'adminOrgVdc' -Filter "name==$vdcName;orgName==$orgName")
+    # Defensive dedupe in case VCD returns the same record twice
+    $vdcRec = @($vdcRec | Sort-Object -Property href -Unique)
     if ($vdcRec.Count -eq 0) { throw "Org VDC not found in org '$orgName': $vdcName" }
     if ($vdcRec.Count -gt 1) {
-        Write-Warning "Multiple Org VDCs named '$vdcName' exist in org '$orgName':"
-        $vdcRec | ForEach-Object {
+        $candidates = $vdcRec | ForEach-Object {
             $u = ($_.href -split '/')[-1]
             [pscustomobject]@{
                 Name      = $_.name
@@ -132,8 +133,17 @@ else {
                 IsEnabled = $_.isEnabled
                 Href      = $_.href
             }
-        } | Format-Table -AutoSize
-        throw "Org VDC '$vdcName' is ambiguous; pick the right URN above and set it as tenant.orgVdcId in config (then re-run step 1)."
+        }
+        # Embed the table inside the throw message so it is always shown with
+        # the error (Format-Table on its own can be truncated/hidden by host).
+        $tableText = ($candidates | Format-Table -AutoSize | Out-String).Trim()
+        throw @"
+Org VDC '$vdcName' is ambiguous in org '$orgName'. Found $($candidates.Count) match(es):
+
+$tableText
+
+Pick the right URN above and set tenant.orgVdcId in config\config.json (or config.local.json), then re-run step 1 to refresh the hand-off file.
+"@
     }
     $vdcUuid = ($vdcRec[0].href -split '/')[-1]
     $vdcUrn  = "urn:vcloud:vdc:$vdcUuid"
