@@ -127,12 +127,14 @@ function Get-VcdQuery {
         $q = "/api/query?type=$Type&format=$Format&pageSize=$PageSize&page=$page"
         if ($Filter) { $q += "&filter=$([uri]::EscapeDataString($Filter))" }
         $resp = Invoke-VcdLegacyApi -Session $Session -Uri $q
-        # Exclude <Link> elements - they share the same parent as the record
-        # elements (e.g. AdminVdcRecord, VMRecord) but are pagination metadata,
-        # not data records. Without this filter every result page looks like it
-        # contains 2-3 extra "records" and triggers false ambiguity errors.
-        $records = $resp.QueryResultRecords.ChildNodes |
-            Where-Object { $_.NodeType -eq 'Element' -and $_.LocalName -ne 'Link' }
+        # Only keep <XxxRecord> elements (AdminVdcRecord, VMRecord, PortgroupRecord, ...).
+        # QueryResultRecords also contains <Link> pagination metadata as siblings;
+        # filtering by LocalName -ne 'Link' is not always reliable across PS hosts
+        # (XML namespace / parser quirks), so use a positive match on the
+        # consistent VCD naming convention: every query record type ends in 'Record'.
+        $records = $resp.QueryResultRecords.ChildNodes | Where-Object {
+            $_.NodeType -eq 'Element' -and $_.LocalName -like '*Record'
+        }
         foreach ($r in $records) { $results.Add($r) }
         $hasNext = $resp.QueryResultRecords.Link.rel -contains 'nextPage'
         $page++
