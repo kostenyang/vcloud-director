@@ -103,7 +103,9 @@ $orgHref = $org.href
 
 # Scope by org as well - the same VDC name can exist under different orgs
 # (System admin sees them all, which is why an unscoped lookup is ambiguous).
-$vdcRec = Get-VcdQuery -Session $session -Type 'orgVdc' -Filter "name==$vdcName;org==$orgHref"
+# Use adminOrgVdc (provider query type) - the user-facing 'orgVdc' query does
+# NOT expose 'org'/'orgName' as filterable fields, only adminOrgVdc does.
+$vdcRec = Get-VcdQuery -Session $session -Type 'adminOrgVdc' -Filter "name==$vdcName;orgName==$orgName"
 if (-not $vdcRec) { throw "Org VDC not found in org '$orgName': $vdcName" }
 if (@($vdcRec).Count -gt 1) { throw "Org VDC '$vdcName' is still ambiguous within org '$orgName'; check VCD for duplicates" }
 $vdcUuid = ($vdcRec.href -split '/')[-1]
