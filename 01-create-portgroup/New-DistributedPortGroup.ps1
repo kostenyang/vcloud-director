@@ -169,6 +169,9 @@ try {
         tenant                    = [ordered]@{
             orgName    = $cfg.tenant.orgName
             orgVdcName = $cfg.tenant.orgVdcName
+            # Optional URN override - pass through if set in config so step 2 can
+            # bypass name-based lookup (useful when many tenants share names).
+            orgVdcId   = if ($cfg.tenant.PSObject.Properties.Name -contains 'orgVdcId') { $cfg.tenant.orgVdcId } else { $null }
         }
     }
 

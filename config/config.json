@@ -12,7 +12,8 @@
   },
   "tenant": {
     "orgName": "ChunghwaOrg",
-    "orgVdcName": "ChunghwaOrg-VDC"
+    "orgVdcName": "ChunghwaOrg-VDC",
+    "orgVdcId": null
   },
   "portGroup": {
     "source": "PG-Tenant-VLAN100",

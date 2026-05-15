@@ -109,8 +109,9 @@ Set-PowerCLIConfiguration -InvalidCertificateAction Ignore -Confirm:$false
   },
   "tenant": {                               // ← Script 1 讀取後寫進交接檔
     "orgName":    "ChunghwaOrg",             // 租戶 Org 名稱
-    "orgVdcName": "ChunghwaOrg-VDC"          // 要匯入網路的 Org VDC 名稱
-  },
+    "orgVdcName": "ChunghwaOrg-VDC",         // 要匯入網路的 Org VDC 名稱
+    "orgVdcId":   null                       // (選填) VDC 的 URN,設了就跳過名稱查詢
+  },                                         //   格式:"urn:vcloud:vdc:<uuid>"
   "portGroup": {                            // ← Script 1 使用
     "source":            "PG-Tenant-VLAN100", // 來源 portgroup 名稱
     "destinationSuffix": "-new"               // 目的名稱後綴
@@ -323,6 +324,7 @@ pwsh ./02-import-switch-nic/Import-And-Switch-TenantNic.ps1 `
 | 憑證錯誤 / SSL 連線失敗 | `config.json` 的 `vcd.skipCertificateCheck` 設 `true`;PowerCLI 端執行 `Set-PowerCLIConfiguration -InvalidCertificateAction Ignore` |
 | `Source/Destination vDS not specified` | `config.vCenter.sourceVdsName` / `destinationVdsName` 未填,或用參數指定 |
 | `Org VDC not found` | 交接檔裡的 `tenant.orgVdcName` 拼錯,或登入帳號看不到該 VDC |
+| `Org VDC '<name>' is ambiguous` | 同 org 內有多個同名 VDC(罕見),或環境特殊。Script 會把所有候選 VDC 連同 URN 印出來;從清單挑對的那個 URN,設成 `tenant.orgVdcId`(格式 `urn:vcloud:vdc:<uuid>`),再重跑步驟 1 → 2 即可跳過名稱查詢 |
 | Org VDC Network「未進入 REALIZED」 | VCD 端網路具現化失敗,到 VCD UI 看該網路的錯誤訊息;常見為 moref 對應的 vCenter 不只一個 |
 | 回滾步驟 1 被中止 | 目的 portgroup 仍有 VM 連著;先跑步驟 2 的回滾 |
 | 某些 VM 重接 `FAIL` | VM 可能鎖定中、vApp 有未完成的 task,或該版本不允許開機狀態下變更;稍後重跑(script 可重複執行,已重接的不受影響) |

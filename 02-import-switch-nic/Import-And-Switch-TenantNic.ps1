@@ -96,21 +96,49 @@ $session = Connect-VcdApi -Server $cfg.vcd.server -Credential $vcdCred `
 Write-Host "Logged in to VCD: $($cfg.vcd.server)" -ForegroundColor Green
 
 # --- 1. Resolve Org / Org VDC ------------------------------------------
-$orgList = Invoke-VcdLegacyApi -Session $session -Uri '/api/org'
-$org = $orgList.OrgList.Org | Where-Object { $_.name -eq $orgName }
-if (-not $org) { throw "Org not found: $orgName" }
-$orgHref = $org.href
+$orgList   = Invoke-VcdLegacyApi -Session $session -Uri '/api/org'
+$orgMatch  = @($orgList.OrgList.Org | Where-Object { $_.name -eq $orgName })
+if (-not $orgMatch) { throw "Org not found: $orgName" }
+if ($orgMatch.Count -gt 1) {
+    Write-Warning "Multiple orgs named '$orgName' exist:"
+    $orgMatch | ForEach-Object { [pscustomobject]@{ Name = $_.name; Href = $_.href } } | Format-Table -AutoSize
+    throw "Org name '$orgName' is ambiguous; use a more specific name in config."
+}
+$orgHref = $orgMatch[0].href
 
-# Scope by org as well - the same VDC name can exist under different orgs
-# (System admin sees them all, which is why an unscoped lookup is ambiguous).
-# Use adminOrgVdc (provider query type) - the user-facing 'orgVdc' query does
-# NOT expose 'org'/'orgName' as filterable fields, only adminOrgVdc does.
-$vdcRec = Get-VcdQuery -Session $session -Type 'adminOrgVdc' -Filter "name==$vdcName;orgName==$orgName"
-if (-not $vdcRec) { throw "Org VDC not found in org '$orgName': $vdcName" }
-if (@($vdcRec).Count -gt 1) { throw "Org VDC '$vdcName' is still ambiguous within org '$orgName'; check VCD for duplicates" }
-$vdcUuid = ($vdcRec.href -split '/')[-1]
-$vdcUrn  = "urn:vcloud:vdc:$vdcUuid"
-Write-Host "Org VDC URN: $vdcUrn"
+# Optional bypass: if config has tenant.orgVdcId (a VCD URN like
+# 'urn:vcloud:vdc:<uuid>'), use it directly and skip the name-based lookup.
+# Useful when many tenants share the same name pattern.
+$cfgVdcId = $null
+if ($handoff.tenant.PSObject.Properties.Name -contains 'orgVdcId') { $cfgVdcId = $handoff.tenant.orgVdcId }
+
+if ($cfgVdcId) {
+    $vdcUrn  = $cfgVdcId
+    $vdcUuid = ($vdcUrn -split ':')[-1]
+    Write-Host "Org VDC URN (from config override): $vdcUrn"
+}
+else {
+    # Use adminOrgVdc (provider query type) - the user-facing 'orgVdc' query
+    # does NOT expose 'org'/'orgName' as filterable fields, only adminOrgVdc does.
+    $vdcRec = @(Get-VcdQuery -Session $session -Type 'adminOrgVdc' -Filter "name==$vdcName;orgName==$orgName")
+    if ($vdcRec.Count -eq 0) { throw "Org VDC not found in org '$orgName': $vdcName" }
+    if ($vdcRec.Count -gt 1) {
+        Write-Warning "Multiple Org VDCs named '$vdcName' exist in org '$orgName':"
+        $vdcRec | ForEach-Object {
+            $u = ($_.href -split '/')[-1]
+            [pscustomobject]@{
+                Name      = $_.name
+                Urn       = "urn:vcloud:vdc:$u"
+                IsEnabled = $_.isEnabled
+                Href      = $_.href
+            }
+        } | Format-Table -AutoSize
+        throw "Org VDC '$vdcName' is ambiguous; pick the right URN above and set it as tenant.orgVdcId in config (then re-run step 1)."
+    }
+    $vdcUuid = ($vdcRec[0].href -split '/')[-1]
+    $vdcUrn  = "urn:vcloud:vdc:$vdcUuid"
+    Write-Host "Org VDC URN: $vdcUrn"
+}
 
 # --- 2. Create the imported Org VDC Network ----------------------------
 #   The portgroup moref comes straight from step 1's hand-off file.
