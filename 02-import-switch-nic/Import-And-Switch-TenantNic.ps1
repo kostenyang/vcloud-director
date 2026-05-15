@@ -93,9 +93,11 @@ $org = $orgList.OrgList.Org | Where-Object { $_.name -eq $orgName }
 if (-not $org) { throw "Org not found: $orgName" }
 $orgHref = $org.href
 
-$vdcRec = Get-VcdQuery -Session $session -Type 'orgVdc' -Filter "name==$vdcName"
-if (-not $vdcRec) { throw "Org VDC not found: $vdcName" }
-if ($vdcRec.Count -gt 1) { throw "Org VDC name is ambiguous: $vdcName; use a more specific config" }
+# Scope by org as well - the same VDC name can exist under different orgs
+# (System admin sees them all, which is why an unscoped lookup is ambiguous).
+$vdcRec = Get-VcdQuery -Session $session -Type 'orgVdc' -Filter "name==$vdcName;org==$orgHref"
+if (-not $vdcRec) { throw "Org VDC not found in org '$orgName': $vdcName" }
+if (@($vdcRec).Count -gt 1) { throw "Org VDC '$vdcName' is still ambiguous within org '$orgName'; check VCD for duplicates" }
 $vdcUuid = ($vdcRec.href -split '/')[-1]
 $vdcUrn  = "urn:vcloud:vdc:$vdcUuid"
 Write-Host "Org VDC URN: $vdcUrn"
