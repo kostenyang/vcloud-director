@@ -48,7 +48,26 @@ function Connect-VcdApi {
     }
     if ($SkipCertificateCheck) { $irmArgs.SkipCertificateCheck = $true }
 
-    $null = Invoke-RestMethod @irmArgs
+    try {
+        $null = Invoke-RestMethod @irmArgs
+    }
+    catch {
+        $code = $_.Exception.Response.StatusCode.value__
+        if ($code -eq 401) {
+            throw @"
+VCD login failed: 401 Unauthorized at $sessionUri
+  Username sent : $user
+  Possible causes:
+    - Wrong password (most common - Get-Credential field is masked)
+    - Account locked after too many failed attempts
+    - config.vcd.org is not 'System' but you are using a provider admin account
+      (provider must use 'System'; tenant admin uses the actual org name)
+    - Account is a tenant user but the script is hitting /sessions/provider
+  Try logging in to https://$Server/provider in a browser to confirm credentials.
+"@
+        }
+        throw
+    }
     $token = $respHeaders['X-VMWARE-VCLOUD-ACCESS-TOKEN']
     if (-not $token) { throw "Login failed: no access token returned (HTTP $status)" }
 
