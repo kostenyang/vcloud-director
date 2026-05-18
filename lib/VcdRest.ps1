@@ -147,14 +147,19 @@ function Get-VcdQuery {
         if ($Filter) { $q += "&filter=$([uri]::EscapeDataString($Filter))" }
         $resp = Invoke-VcdLegacyApi -Session $Session -Uri $q
         # Only keep <XxxRecord> elements (AdminVdcRecord, VMRecord, PortgroupRecord, ...).
-        # QueryResultRecords also contains <Link> pagination metadata as siblings;
-        # filtering by LocalName -ne 'Link' is not always reliable across PS hosts
-        # (XML namespace / parser quirks), so use a positive match on the
-        # consistent VCD naming convention: every query record type ends in 'Record'.
-        $records = $resp.QueryResultRecords.ChildNodes | Where-Object {
-            $_.NodeType -eq 'Element' -and $_.LocalName -like '*Record'
+        # QueryResultRecords also contains <Link> pagination/alt-format metadata as
+        # siblings. Belt-and-suspenders filter: explicitly reject 'Link' AND positive
+        # match on the consistent VCD naming convention (every record type ends in
+        # 'Record'). Fall back to .Name if .LocalName is empty on this PS host.
+        foreach ($child in $resp.QueryResultRecords.ChildNodes) {
+            if ($child.NodeType -ne 'Element') { continue }
+            $elemName = $child.LocalName
+            if ([string]::IsNullOrEmpty($elemName)) { $elemName = $child.Name }
+            if ($elemName -eq 'Link') { continue }
+            if ($elemName -notmatch 'Record$') { continue }
+            $results.Add($child)
         }
-        foreach ($r in $records) { $results.Add($r) }
+        Write-Verbose "Get-VcdQuery: page $page returned $($results.Count) record(s) so far (raw children: $($resp.QueryResultRecords.ChildNodes.Count))"
         $hasNext = $resp.QueryResultRecords.Link.rel -contains 'nextPage'
         $page++
     } while ($hasNext)
