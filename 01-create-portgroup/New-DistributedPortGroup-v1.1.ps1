@@ -40,16 +40,29 @@
   NICs back.
 
 .EXAMPLE
-  pwsh ./01-create-portgroup/New-DistributedPortGroup.ps1
+  pwsh ./01-create-portgroup/New-DistributedPortGroup-v1.1.ps1
   # Create the destination portgroup and write the hand-off file
 
 .EXAMPLE
-  pwsh ./01-create-portgroup/New-DistributedPortGroup.ps1 -DestinationVdsName "DSwitch-DR"
+  pwsh ./01-create-portgroup/New-DistributedPortGroup-v1.1.ps1 -DestinationVdsName "DSwitch-DR"
   # Create the destination portgroup on a different vDS "DSwitch-DR"
 
 .EXAMPLE
-  pwsh ./01-create-portgroup/New-DistributedPortGroup.ps1 -Rollback
+  pwsh ./01-create-portgroup/New-DistributedPortGroup-v1.1.ps1 -Rollback
   # Rollback: delete the destination portgroup and the hand-off file
+
+.NOTES
+  Version: 1.1
+  Changelog:
+    1.1 - (a) refuse to build "<source>-new-new" if config.portGroup.source
+              already ends with destinationSuffix (operator likely re-ran
+              against an already-migrated portgroup)
+          (b) cross-vDS clone: -ReferencePortgroup carries the source vDS's
+              uplink port names (e.g. "Uplink 1") in the teaming policy and
+              the destination vDS rejects them. When SourceVds != DestVds,
+              build the spec manually and clear UplinkPortOrder so the
+              destination vDS applies its own uplink defaults.
+    1.0 - initial version (same-vDS clone via -ReferencePortgroup)
 #>
 [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
 param(
@@ -133,6 +146,16 @@ try {
     }
 
     # ===================== Create mode =====================
+    # Refuse to build "<source>-new-new" if the configured source already ends
+    # with destinationSuffix - usually means a re-run against an already-
+    # migrated portgroup. Operator should point cfg.portGroup.source at the
+    # ORIGINAL name, not the "-new" one.
+    $suffix = $cfg.portGroup.destinationSuffix
+    if (-not [string]::IsNullOrEmpty($suffix) -and $sourcePg.EndsWith($suffix)) {
+        Write-Warning "Source portgroup '$sourcePg' already ends with destinationSuffix '$suffix'; looks like an already-migrated portgroup. Skipping create (would have built '$destPg')."
+        return
+    }
+
     $srcVds = Get-VDSwitch -Name $SourceVdsName
     $src    = Get-VDPortgroup -VDSwitch $srcVds -Name $sourcePg
 
@@ -146,7 +169,39 @@ try {
         $pg = $existing
     }
     elseif ($PSCmdlet.ShouldProcess($destPg, "Create on vDS '$DestinationVdsName' (cloned from '$SourceVdsName/$sourcePg')")) {
-        $pg = New-VDPortgroup -VDSwitch $destVds -Name $destPg -ReferencePortgroup $src
+        if ($srcVds.Name -eq $destVds.Name) {
+            # Same vDS - uplink names match, -ReferencePortgroup is safe.
+            $pg = New-VDPortgroup -VDSwitch $destVds -Name $destPg -ReferencePortgroup $src
+        }
+        else {
+            # Cross-vDS - -ReferencePortgroup propagates the source vDS's
+            # uplink port names into spec.uplinkTeamingPolicy.uplinkPortOrder,
+            # which the destination vDS rejects. Build the spec ourselves and
+            # blank the explicit ordering so the dest vDS applies its defaults.
+            $srcCfg = $src.ExtensionData.Config
+            $spec   = New-Object VMware.Vim.DVPortgroupConfigSpec
+            $spec.Name              = $destPg
+            $spec.Type              = $srcCfg.Type
+            $spec.NumPorts          = $srcCfg.NumPorts
+            $spec.AutoExpand        = $srcCfg.AutoExpand
+            $spec.Description       = $srcCfg.Description
+            $spec.DefaultPortConfig = $srcCfg.DefaultPortConfig
+            if ($spec.DefaultPortConfig.UplinkTeamingPolicy -and
+                $spec.DefaultPortConfig.UplinkTeamingPolicy.UplinkPortOrder) {
+                $spec.DefaultPortConfig.UplinkTeamingPolicy.UplinkPortOrder.ActiveUplinkPort  = @()
+                $spec.DefaultPortConfig.UplinkTeamingPolicy.UplinkPortOrder.StandbyUplinkPort = @()
+            }
+            $taskMoRef = $destVds.ExtensionData.AddDVPortgroup_Task(@($spec))
+            $deadline  = (Get-Date).AddSeconds(60)
+            do {
+                Start-Sleep -Milliseconds 500
+                $taskInfo = Get-View -Id $taskMoRef
+            } while ($taskInfo.Info.State -notin @('success', 'error') -and (Get-Date) -lt $deadline)
+            if ($taskInfo.Info.State -ne 'success') {
+                throw "AddDVPortgroup failed: $($taskInfo.Info.Error.LocalizedMessage)"
+            }
+            $pg = Get-VDPortgroup -VDSwitch $destVds -Name $destPg
+        }
         Write-Host "Created portgroup: $($pg.Name)" -ForegroundColor Green
     }
     else {
@@ -157,7 +212,7 @@ try {
     $handoff = [ordered]@{
         schemaVersion             = 1
         createdAt                 = (Get-Date).ToString('o')
-        createdBy                 = '01-create-portgroup/New-DistributedPortGroup.ps1'
+        createdBy                 = '01-create-portgroup/New-DistributedPortGroup-v1.1.ps1'
         vCenter                   = $cfg.vCenter.server
         sourceVdsName             = $SourceVdsName
         destinationVdsName        = $DestinationVdsName
@@ -188,7 +243,7 @@ try {
     Write-Host "Hand-off file written: $HandoffPath" -ForegroundColor Green
     Write-Host ""
     Write-Host "Next step: run 02-import-switch-nic/Import-And-Switch-TenantNic.ps1 - it reads the hand-off file above." -ForegroundColor Cyan
-    Write-Host "To undo:   pwsh ./01-create-portgroup/New-DistributedPortGroup.ps1 -Rollback" -ForegroundColor DarkGray
+    Write-Host "To undo:   pwsh ./01-create-portgroup/New-DistributedPortGroup-v1.1.ps1 -Rollback" -ForegroundColor DarkGray
 }
 finally {
     Disconnect-VIServer -Server $vc -Confirm:$false -ErrorAction SilentlyContinue
