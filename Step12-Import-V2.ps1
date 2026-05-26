@@ -65,7 +65,7 @@ function Get-HardcodedOrPromptCred {
         $sec = ConvertTo-SecureString $DEFAULT_PASSWORD -AsPlainText -Force
         return New-Object System.Management.Automation.PSCredential($DEFAULT_USERNAME, $sec)
     }
-    Get-HardcodedOrPromptCred -Message $Message
+    Get-CredentialSafe -Message $Message
 }
 
 function Get-CredentialSafe {
