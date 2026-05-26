@@ -40,39 +40,50 @@
   NICs back.
 
 .PARAMETER Interactive
-  Batch mode. Reads `config.portGroup.sources[]` (the array produced by
-  Build-SourcesFromVdsBackup.ps1) and iterates EVERY entry, prompting per
-  source: [Y]es build / [N]o skip / [A]ll remaining without asking /
-  [Q]uit. Default is Y (empty input = Y).
+  Batch mode WITH per-source prompts. Reads `config.portGroup.sources[]`
+  (the array produced by Build-SourcesFromVdsBackup.ps1) and iterates EVERY
+  entry, prompting per source: [Y]es build / [N]o skip / [A]ll remaining
+  without asking / [Q]uit. Default is Y (empty input = Y).
 
   In batch mode the standard single-source hand-off is NOT written; instead
   a summary state\step1-batch-result.json is written. Step 2 / 3 should be
   driven by the batch wrapper (Invoke-MigrationBatch.ps1).
 
-.EXAMPLE
-  pwsh ./01-create-portgroup/New-DistributedPortGroup-v1.1.ps1
-  # Create the destination portgroup and write the hand-off file
+.PARAMETER All
+  Batch mode WITHOUT prompts. Equivalent to -Interactive + pressing 'A' at
+  the first prompt - reads cfg.portGroup.sources[] and processes every
+  entry in one shot, no questions asked. Same summary file is written.
 
 .EXAMPLE
-  pwsh ./01-create-portgroup/New-DistributedPortGroup-v1.1.ps1 -DestinationVdsName "DSwitch-DR"
+  pwsh ./01-create-portgroup/New-DistributedPortGroup-v1.2.ps1
+  # Create the destination portgroup and write the hand-off file (single source)
+
+.EXAMPLE
+  pwsh ./01-create-portgroup/New-DistributedPortGroup-v1.2.ps1 -DestinationVdsName "DSwitch-DR"
   # Create the destination portgroup on a different vDS "DSwitch-DR"
 
 .EXAMPLE
-  pwsh ./01-create-portgroup/New-DistributedPortGroup-v1.1.ps1 -Rollback
+  pwsh ./01-create-portgroup/New-DistributedPortGroup-v1.2.ps1 -Rollback
   # Rollback: delete the destination portgroup and the hand-off file
 
 .EXAMPLE
-  pwsh ./01-create-portgroup/New-DistributedPortGroup-v1.1.ps1 -Interactive
+  pwsh ./01-create-portgroup/New-DistributedPortGroup-v1.2.ps1 -Interactive
   # Batch mode: iterate cfg.portGroup.sources[] and prompt per source
 
+.EXAMPLE
+  pwsh ./01-create-portgroup/New-DistributedPortGroup-v1.2.ps1 -All
+  # Batch mode: process EVERY source in cfg.portGroup.sources[], no prompts
+
 .NOTES
-  Version: 1.2
+  Version: 1.3
   Changelog:
-    1.2 - -Interactive switch: iterate cfg.portGroup.sources[] and prompt
-          per source ([Y]es / [N]o / [A]ll / [Q]uit). Builds many portgroups
-          in one script run. Writes state\step1-batch-result.json summary;
-          does NOT write the single-source hand-off (use Invoke-MigrationBatch
-          for end-to-end step 1/2/3 batch).
+    1.3 - same as 1.2; version label bump only.
+    1.2 - -Interactive switch: iterate cfg.portGroup.sources[] with
+          per-source prompt ([Y]/[N]/[A]/[Q]).
+          -All switch: same as Interactive + auto-yes (no prompts).
+          Both write state\step1-batch-result.json summary (no single-
+          source hand-off in batch mode - use Invoke-MigrationBatch for
+          end-to-end step 1/2/3 batch).
     1.1 - cross-vDS uplink remap by index (preserves teaming, no
           disconnects). Skip if source name already ends with -new.
     1.0 - initial version (same-vDS clone via -ReferencePortgroup)
@@ -84,7 +95,8 @@ param(
     [string] $SourceVdsName,
     [string] $DestinationVdsName,
     [switch] $Rollback,
-    [switch] $Interactive
+    [switch] $Interactive,
+    [switch] $All
 )
 
 $ErrorActionPreference = 'Stop'
@@ -118,8 +130,10 @@ $destPg   = if ($sourcePg) { $sourcePg + $suffix } else { '' }
 
 Write-Host "Source vDS                  : $SourceVdsName"
 Write-Host "Destination vDS             : $DestinationVdsName"
-if ($Interactive) {
-    Write-Host "Mode                        : INTERACTIVE BATCH (cfg.portGroup.sources[])" -ForegroundColor Yellow
+$batchMode = $Interactive -or $All
+if ($batchMode) {
+    $modeLabel = if ($All) { 'ALL BATCH (auto-yes)' } else { 'INTERACTIVE BATCH (prompt per source)' }
+    Write-Host "Mode                        : $modeLabel (cfg.portGroup.sources[])" -ForegroundColor Yellow
 }
 elseif ($Rollback) {
     Write-Host "Mode                        : ROLLBACK (delete destination portgroup)" -ForegroundColor Magenta
@@ -244,17 +258,17 @@ try {
 
     $srcVds = Get-VDSwitch -Name $SourceVdsName
 
-    # ===================== Interactive batch mode =====================
-    if ($Interactive) {
+    # ===================== Batch mode (-Interactive or -All) ============
+    if ($batchMode) {
         if (-not ($cfg.portGroup.PSObject.Properties.Name -contains 'sources') -or
             -not $cfg.portGroup.sources -or @($cfg.portGroup.sources).Count -eq 0) {
-            throw "-Interactive requires cfg.portGroup.sources[] to be populated (run Build-SourcesFromVdsBackup.ps1 first)."
+            throw "-Interactive / -All requires cfg.portGroup.sources[] to be populated (run Build-SourcesFromVdsBackup.ps1 first)."
         }
         $sources = @($cfg.portGroup.sources)
         Write-Host ("Sources in config           : {0}" -f $sources.Count) -ForegroundColor Yellow
 
         $batchResults = New-Object System.Collections.Generic.List[object]
-        $autoYes   = $false
+        $autoYes   = [bool]$All     # -All starts already auto-yes
         $userAbort = $false
         $i = 0
         foreach ($srcEntry in $sources) {
@@ -426,3 +440,4 @@ try {
 finally {
     Disconnect-VIServer -Server $vc -Confirm:$false -ErrorAction SilentlyContinue
 }
+
