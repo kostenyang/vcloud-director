@@ -1,34 +1,21 @@
 {
-  "_meta": {
-    "schemaVersion": 1,
-    "generatedAt": "2026-05-26T15:36:13.6828528+08:00",
-    "generatedFrom": "C:\\Users\\Administrator\\OneDrive\\桌面\\VCF\\chunghwa-vcd\\backup\\META-INF\\data.xml",
-    "namePattern": "^ds-",
-    "excludePattern": "-new$|-vlan|-1$",
-    "anomalyPattern": "^ds-\\d+-\\d+-\\d+$",
-    "includeAllTypes": false,
-    "totalScanned": 313,
-    "emittedCount": 307,
-    "anomalies": []
-  },
   "vCenter": {
-    "server": "vcenter.chunghwa.local",
+    "server": "tpe-vcha022.vs.local",
     "sourceVdsName": "vDS-TPE-Resource",
-    "destinationVdsName": "DSwitch-Prod"
+    "destinationVdsName": "vDS-TPE-vCD"
   },
   "vcd": {
-    "server": "vcd.chunghwa.local",
-    "apiVersion": "40.0",
+    "server": "ecloud.cht.com.tw",
+    "apiVersion": "39.1",
     "org": "System",
     "skipCertificateCheck": true
   },
   "tenant": {
-    "orgName": "ChunghwaOrg",
-    "orgVdcName": "ChunghwaOrg-VDC",
-    "orgVdcId": null
+    "orgName": "ecloud-stage",
+    "orgVdcName": "ecloud-stage"
   },
   "portGroup": {
-    "source": "ds-10-190-025",
+    "source": "ds-10-190-000",
     "destinationSuffix": "-new",
     "sources": [
       {
