@@ -1,7 +1,19 @@
 # 完整操作流程
 
-step-by-step,涵蓋兩種使用情境(per-tenant 跟 vDS 整批)+ 回滾。
-參數細節跟元件設計請看 [`README.md`](README.md)。
+V3 standalone 三隻為主(repo 根目錄),客戶下載這三個檔即可跑。
+參數細節跟元件設計請看 [`README.md`](README.md);密碼處理請看 [`CREDENTIALS.md`](CREDENTIALS.md)。
+
+---
+
+## 三隻主要 script(repo 根目錄)
+
+| 順序 | 檔案 | 作用 |
+| --- | --- | --- |
+| 1 | [`Build-SourcesFromOrg-V3.ps1`](Build-SourcesFromOrg-V3.ps1) | 查 VCD 目標 tenant,把 DIRECT 網路清單寫進 `config\configorg.json` |
+| 2 | [`Step12-Import-V3.ps1`](Step12-Import-V3.ps1) | **Phase 1** — 為每個 source 建 dest portgroup + import 成 Org VDC Network(不切 NIC) |
+| 3 | [`Step3-Switch-V3.ps1`](Step3-Switch-V3.ps1) | **Phase 2** — 切 VM NIC 從 source network 到 `<source>-new` |
+
+V3 = V2 + polling 加速(4s → 2s)。V2 / V1 留著當 baseline 不會消失。
 
 ---
 
@@ -11,48 +23,30 @@ step-by-step,涵蓋兩種使用情境(per-tenant 跟 vDS 整批)+ 回滾。
 git clone https://github.com/kostenyang/vcloud-director.git
 cd vcloud-director
 
-# 確保 PowerCLI 在
+# PowerCLI
 Install-Module VMware.PowerCLI -Scope CurrentUser
 Set-PowerCLIConfiguration -InvalidCertificateAction Ignore -Confirm:$false
-
-# 修 config\config.json 把 vCenter / VCD 連線資訊填成你的環境
-notepad .\config\config.json
 ```
 
-`config\config.json` 的關鍵欄位:
-- `vCenter.server` / `sourceVdsName` / `destinationVdsName`
-- `vcd.server` / `apiVersion`(10.5 = `39.1`,10.6.1 = `40.0`)
-- `vcd.org` = `"System"`(provider admin 永遠是 System,**不是** tenant 名)
+預設值已 baked 為 chunghwa customer 環境(`tpe-vcha022.vs.local` / `ecloud.cht.com.tw` / `vDS-TPE-Resource` → `vDS-TPE-vcd` / API 39.1)。其他環境用 `-VcdServer` / `-VCenterServer` / 等等覆寫。
 
 ---
 
-## 兩種使用情境
+## 每個 tenant 三步流程
 
-| 情境 | 適合 | 用哪個 generator |
-| --- | --- | --- |
-| **A. 一次處理一個 tenant** | 規模小、tenant 單獨切換、只搬 DIRECT 網路 | [`Build-SourcesFromOrg.ps1`](00-build-config/Build-SourcesFromOrg.ps1) → `configorg.json` |
-| **B. 一次處理整個 vDS 上幾百個 portgroup** | 大規模搬 vDS、跨 tenant、OPAQUE 為主 | [`Build-SourcesFromVdsBackup.ps1`](00-build-config/Build-SourcesFromVdsBackup.ps1) → `config-batch.json` |
-
-兩者底層共用相同 step 1 / 2 / 3 + wrapper,**差別只在 sources[] 從哪來**。
-
----
-
-## 情境 A:Per-tenant 流程
-
-### A1. 產 configorg.json
+### Step 1:產 configorg.json
 
 ```powershell
-pwsh .\00-build-config\Build-SourcesFromOrg.ps1 -OrgName 'viqa.qa'
+pwsh .\Build-SourcesFromOrg-V3.ps1 -OrgName 'viqa.qa'
 ```
 
-Script 會:
-1. 跳出輸密碼框(provider admin)
-2. resolve `viqa.qa` 的 Org VDC URN
-3. 查該 VDC 內所有 DIRECT 網路
-4. 寫 [`config\configorg.json`](config/configorg.json),裡面 `portGroup.sources[]` = 該 tenant 的所有 DIRECT 網路名單
+它會:
+1. Prompt VCD 帳密(provider admin,`vcd.org = System`)
+2. Resolve `viqa.qa` 的 Org VDC URN
+3. Query 該 VDC 內所有 DIRECT 網路(已是 `-new` 結尾的會自動跳過)
+4. 寫 [`config\configorg.json`](config/configorg.json),`portGroup.sources[]` 填入清單
 
-預期輸出:
-
+**預期輸出**:
 ```
 Sources emitted: 4
 Preview:
@@ -62,154 +56,190 @@ Preview:
   - ds-10-191-096  parent=ext-ds-10-191-096
 ```
 
-### A2. Review configorg.json
-
+要 review / 刪某筆就直接編輯:
 ```powershell
-Get-Content .\config\configorg.json -Raw | ConvertFrom-Json |
-    Select-Object -ExpandProperty portGroup |
-    Select-Object -ExpandProperty sources |
-    Format-Table name, parentNetworkName, gateway -AutoSize
+notepad .\config\configorg.json
 ```
 
-要刪掉某筆就直接手動編輯 sources[]。
-
-### A3. Dry-run 看 batch 會做什麼
+### Step 2:Phase 1 — 建 portgroup + import 進 org(不切 NIC)
 
 ```powershell
-pwsh .\Invoke-MigrationBatch.ps1 -ConfigPath .\config\configorg.json -All -WhatIf
+# 先 dry-run 看會做什麼(完全不會建)
+pwsh .\Step12-Import-V3.ps1 -WhatIf
+
+# 真跑
+pwsh .\Step12-Import-V3.ps1
 ```
 
-不會建任何東西,只列每個 source 會經過哪些 step。
+**VM 完全不會被動到。VM 還在原本的 source 網路上跑**。
 
-### A4. 真跑
+對每個 source(以 ds-10-191-043 為例):
+1. step 1:vCenter 在 `vDS-TPE-Resource` 找 `ds-10-191-043` portgroup → clone 到 `vDS-TPE-vcd` 變 `ds-10-191-043-new`(**cross-vDS 自動 remap uplink 名稱,保留 teaming**)
+2. step 2:VCD 看 source `ds-10-191-043` (DIRECT) → 讀 `ext-ds-10-191-043` 拿 subnet + vCenter URN → 建 `ext-ds-10-191-043-new` external network → 建 `ds-10-191-043-new` DIRECT Org VDC Network
 
-```powershell
-pwsh .\Invoke-MigrationBatch.ps1 -ConfigPath .\config\configorg.json -All
+Console:
+```
+[1/4] ds-10-191-043  ->  ds-10-191-043-new
+  -> step1 (portgroup)...
+     portgroup: ds-10-191-043-new  moref=dvportgroup-880273  vlan=2843
+  -> step2 (org vdc network)...
+  [OK] 12.3s   srcType=DIRECT destNet=DIRECT
 ```
 
-**只輸一次密碼**(vCenter + VCD 共用),然後 wrapper 對每個 source 跑 step 1 → 2 → 3:
+### Step 3:VCD UI 驗證
 
-| Step | 對 `ds-10-191-043` 做什麼 |
+切之前必看,確認 phase 1 結果正常:
+
+| 在哪 | 看什麼 |
 | --- | --- |
-| 1 | 在 `vDS-TPE-Resource` 找 portgroup `ds-10-191-043` → clone 到 `vDS-TPE-vcd` 變成 `ds-10-191-043-new`,**保留 teaming policy(uplink 自動 remap)** |
-| 2 v2 | VCD 找 source `ds-10-191-043`(DIRECT)→ 讀 parent `ext-ds-10-191-043` → **建新 ext network `ext-ds-10-191-043-new`**(用 step 1 的新 portgroup 當 backing)→ **建新 DIRECT 網路 `ds-10-191-043-new`** 指向新 ext |
-| 3 | 找接在 `ds-10-191-043` 的 VM,把 NIC 切到 `ds-10-191-043-new`,**保留 IP / MAC** |
+| tenant viqa.qa → Networks | 多 4 個 `*-new` DIRECT 網路,VM count = 0 |
+| Provider → External Networks | 多 4 個 `ext-*-new` |
+| vCenter vDS-TPE-vcd | 多 4 個 `ds-10-191-*-new` portgroup,VLAN 跟 source 一致 |
 
-### A5. 看結果
+不對勁就馬上 rollback(見最下面)。
+
+### Step 4:Phase 2 — 切 VM NIC(真實 migration)
 
 ```powershell
-Get-Content .\state\batch-result.json -Raw | ConvertFrom-Json |
-    Select-Object -ExpandProperty results |
-    Format-Table source, status, durationSec, message
+# 先 dry-run 看會切哪些 VM
+pwsh .\Step3-Switch-V3.ps1 -WhatIf
+
+# 真切
+pwsh .\Step3-Switch-V3.ps1
 ```
 
-預期看到每筆 `status = ok`。
+對每個 source:
+1. 找所有接在 source network 的 VM
+2. 改每張匹配的 NIC `.network = <dest>`,PUT 回 VCD
+3. 等 task success,記 result
 
-### A6. 換下一個 tenant
+**VM 不用關機。NIC reconfigure 是 vCenter 熱操作,VM 持續跑**:
+- IP / MAC / IP 配置模式都**完整保留**
+- 通常 < 1 秒內完成(可能掉幾個封包,TCP 自己 retransmit)
+- 前提:source 跟 dest 的 underlying vDS uplinks 接同一條 physical 網路(同 VLAN 跨 vDS 的標準情境)
+
+### Step 5:看結果
 
 ```powershell
-pwsh .\00-build-config\Build-SourcesFromOrg.ps1 -OrgName '另一個tenant'
+# Phase 1
+Get-Content .\state\step12-batch-result.json -Raw | ConvertFrom-Json |
+    Select-Object -ExpandProperty results |
+    Format-Table source, status, durationSec
+
+# Phase 2 — per-source 統計
+Get-Content .\state\step3-batch-result.json -Raw | ConvertFrom-Json |
+    Select-Object -ExpandProperty results |
+    Format-Table source, status, vmCount, durationSec
+
+# Phase 2 — 看某個 source 內每台 VM 的成敗
+$r = Get-Content .\state\step3-batch-result.json -Raw | ConvertFrom-Json
+$r.results | Where-Object { $_.source -eq 'ds-10-191-043' } |
+    Select-Object -ExpandProperty vmResults |
+    Format-Table vm, result, error -AutoSize
+```
+
+預期看到每筆 `status = ok`,每台 VM `result = Success`。
+
+### Step 6:換下一個 tenant
+
+```powershell
+pwsh .\Build-SourcesFromOrg-V3.ps1 -OrgName '另一個tenant'
 # configorg.json 被新 tenant 內容覆寫
 
-pwsh .\Invoke-MigrationBatch.ps1 -ConfigPath .\config\configorg.json -All
+pwsh .\Step12-Import-V3.ps1
+# (verify in VCD UI)
+pwsh .\Step3-Switch-V3.ps1
 ```
 
 ---
 
-## 情境 B:vDS 整批流程
+## 怎麼避免每次都輸密碼
 
-### B1. 解壓 vDS export 到 `.\backup\`
+兩種方式,詳見 [`CREDENTIALS.md`](CREDENTIALS.md):
 
-`.\backup\META-INF\data.xml` + `.\backup\data\dvportgroup-*.bak`(.bak 不會被讀)
+### 方式 A:腳本內變數(只在本機填)
 
-### B2. 產 config-batch.json
-
-```powershell
-pwsh .\00-build-config\Build-SourcesFromVdsBackup.ps1
-```
-
-預設過濾 `-new$` / `FT` / `VMotion` / `vtep` / `vsan`,只收 standard/static 的。
-
-### B3. Diff 現況產 todo.json
+每隻 V3 開頭有:
 
 ```powershell
-pwsh .\00-build-config\Compare-MigrationState.ps1
-# 加 -CheckVms 才會查 step3 是否做完
+# Step12-Import-V3.ps1 (vCenter + VCD 都要)
+$DEFAULT_VC_USERNAME  = ''     ← 填這
+$DEFAULT_VC_PASSWORD  = ''
+$DEFAULT_VCD_USERNAME = ''
+$DEFAULT_VCD_PASSWORD = ''
+
+# Build-SourcesFromOrg-V3.ps1 / Step3-Switch-V3.ps1 (只 VCD)
+$DEFAULT_VCD_USERNAME = ''
+$DEFAULT_VCD_PASSWORD = ''
 ```
 
-`state\todo.json` 顯示哪些 source 缺 step1 / step2 / step3。
+填了就完全靜默不 prompt。
 
-### B4. Batch wrapper 一鍵跑
+### 方式 B:讓 git 假裝你沒改過(防誤 commit)
 
 ```powershell
-# 先 dry-run + 限制只跑前 3 個
-pwsh .\Invoke-MigrationBatch.ps1 -WhatIf -Limit 3
-
-# 真跑前 3 個確認流程
-pwsh .\Invoke-MigrationBatch.ps1 -Limit 3
-
-# 全跑(剩下 ~300 個)
-pwsh .\Invoke-MigrationBatch.ps1
+git update-index --assume-unchanged Step12-Import-V3.ps1
+git update-index --assume-unchanged Step3-Switch-V3.ps1
+git update-index --assume-unchanged Build-SourcesFromOrg-V3.ps1
 ```
 
-`Invoke-MigrationBatch.ps1` 預設讀 `config-batch.json`,自動跑 Compare 再 dispatch step 1+2+3。
+⚠️ **絕對不要把填過密碼的版本 `git push`**。
 
 ---
 
-## 三種「停下來逐筆確認」的選項
-
-| 場景 | 命令 |
-| --- | --- |
-| 整個 batch 每筆都要按 [Y]/[N]/[A]/[Q] | `Invoke-MigrationBatch.ps1 -ConfigPath ... -Interactive` |
-| **只跑 step 1 的 batch + 逐筆問** | `New-DistributedPortGroup-v1.3.ps1 -ConfigPath ... -Interactive` |
-| 只跑 step 1 的 batch + 全自動不問 | `New-DistributedPortGroup-v1.3.ps1 -ConfigPath ... -All` |
-
----
-
-## Hand-off 與 state 檔
-
-```
-state/
-├── portgroup-handoff.json    # step 1 寫,step 2 讀(per-source,跑下一筆會被覆寫)
-├── network-handoff.json      # step 2 寫,step 3 讀(同上)
-├── migration-result.json     # step 3 寫
-├── todo.json                 # Compare 寫,wrapper 讀(批次模式)
-├── step1-batch-result.json   # v1.3 -Interactive / -All 寫(只 step 1 batch)
-└── batch-result.json         # Invoke-MigrationBatch 寫(整批 step 1+2+3)
-```
-
-跑完任何 batch 模式都先看對應的 `*-result.json`。
-
----
-
-## 回滾
-
-### 整體建議順序:**Step 3 反向 → 刪 imported network → Step 1 -Rollback**
+## 部分執行 / 限筆數
 
 ```powershell
-# Step 3 反向 — 把 VM 切回 source
-pwsh .\03-switch-nics\Switch-TenantVmNics.ps1 -SourceNetworkName 'ds-10-191-043-new' -WhatIf
+# 只跑第一筆(測試水溫)
+pwsh .\Step12-Import-V3.ps1 -Limit 1
+pwsh .\Step3-Switch-V3.ps1  -Limit 1
+```
+
+或編輯 configorg.json 砍掉 sources[] 內不要做的那幾筆。
+
+---
+
+## 反悔 / 回滾
+
+### Phase 2 切錯 → VM NIC 反向切回 source
+
+```powershell
+# 用 step 3 v1 的單 source 模式(不用 batch)
 pwsh .\03-switch-nics\Switch-TenantVmNics.ps1 -SourceNetworkName 'ds-10-191-043-new'
-
-# Step 2 反向 — 手動到 VCD UI 刪 imported network(腳本沒做)
-# 或 API:DELETE /cloudapi/1.0.0/orgVdcNetworks/<urn>
-
-# Step 1 反向 — 刪掉新建的 portgroup
-pwsh .\01-create-portgroup\New-DistributedPortGroup-v1.3.ps1 -Rollback
-# (該 portgroup 上還有 VM 連著會被擋住,先做 step 3 反向)
 ```
+
+或直接到 VCD UI 一台 VM 一台 VM 把 NIC 改回去(對少量 VM 最快)。
+
+### Phase 1 建錯 → 刪 -new 物件
+
+確認 -new network 上 0 VM 之後:
+
+1. VCD UI → tenant Networks → 刪 `ds-10-191-XXX-new`
+2. VCD UI → Provider External Networks → 刪 `ext-ds-10-191-XXX-new`
+3. vCenter → vDS-TPE-vcd → 刪 `ds-10-191-XXX-new` portgroup(或用 step 1 `-Rollback`)
 
 ---
 
-## viqa.qa 4 個 DIRECT 最快路徑
+## 已知踩雷
+
+| 症狀 | 處理 |
+| --- | --- |
+| `Required script missing: ...v1.X.ps1` | 拉到舊版 wrapper;改用 V3 standalone(`Step12-Import-V3.ps1`),不依賴 wrapper |
+| `Cannot validate argument on parameter 'Credential'` | 舊版 Get-Credential GUI 沒回應;V2+ 已改用 Read-Host,`git pull` 拿最新 |
+| `Response status code does not indicate success: 400` | V3 已 patch 會印 VCD 完整錯誤訊息,看 `VCD response:` 那段對症處理 |
+| `[poll #N] ... not yet visible / status=...` 卡很久 | Polling 中 — 5 分鐘 timeout 後會 throw,看 last status;或到 VCD UI 看 network 真正狀態 |
+| 切完 VM 斷網 | source 跟 dest 的 vDS uplinks 沒接同一條 physical 網路;確認兩 vDS 對應 host 接同 VLAN |
+| 某些 VM 切 NIC 失敗 | VM 鎖定中 / vApp 有 pending task;等該 task 結束重跑(idempotent),或先 power-off 那幾台 |
+
+---
+
+## TL;DR — 4 行最小流程
 
 ```powershell
-git pull                                                                    # 拿最新 script
-pwsh .\00-build-config\Build-SourcesFromOrg.ps1 -OrgName 'viqa.qa'         # 產 configorg.json
-notepad .\config\configorg.json                                            # 看一下對不對
-pwsh .\Invoke-MigrationBatch.ps1 -ConfigPath .\config\configorg.json -All -WhatIf   # dry-run
-pwsh .\Invoke-MigrationBatch.ps1 -ConfigPath .\config\configorg.json -All  # 真跑
-Get-Content .\state\batch-result.json -Raw | ConvertFrom-Json | Select results -Expand | ft   # 看結果
+git pull
+pwsh .\Build-SourcesFromOrg-V3.ps1 -OrgName 'viqa.qa'
+pwsh .\Step12-Import-V3.ps1
+pwsh .\Step3-Switch-V3.ps1   # 確認 phase 1 後再執行
 ```
 
-需要再加 `-Interactive` 改成逐筆問就好。
+VM 開機狀態都可以做,**不用 power-off**。
