@@ -215,8 +215,9 @@ foreach ($src in $cfg.portGroup.sources) {
     if (-not $hasDestPg)  { $needs.Add('step1') }
     if (-not $hasDestNet) { $needs.Add('step2') }
     if ($CheckVms) {
-        # step 3 only "done" when sourceVmCount == 0 AND dest exists
-        if ($sourceVmCount -gt 0 -or -not $hasDestNet) { $needs.Add('step3') }
+        # step 3 only "done" when sourceVmCount == 0 AND dest network exists.
+        # Anything else (count > 0, query failed -1, dest missing) -> pending.
+        if (-not ($hasDestNet -and $sourceVmCount -eq 0)) { $needs.Add('step3') }
     }
     else {
         # No VM check - if dest network is missing, definitely need step 3
