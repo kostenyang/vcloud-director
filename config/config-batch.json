@@ -1,0 +1,1571 @@
+{
+  "_meta": {
+    "schemaVersion": 1,
+    "generatedAt": "2026-05-26T15:36:13.6828528+08:00",
+    "generatedFrom": "C:\\Users\\Administrator\\OneDrive\\桌面\\VCF\\chunghwa-vcd\\backup\\META-INF\\data.xml",
+    "namePattern": "^ds-",
+    "excludePattern": "-new$|-vlan|-1$",
+    "anomalyPattern": "^ds-\\d+-\\d+-\\d+$",
+    "includeAllTypes": false,
+    "totalScanned": 313,
+    "emittedCount": 307,
+    "anomalies": []
+  },
+  "vCenter": {
+    "server": "vcenter.chunghwa.local",
+    "sourceVdsName": "vDS-TPE-Resource",
+    "destinationVdsName": "DSwitch-Prod"
+  },
+  "vcd": {
+    "server": "vcd.chunghwa.local",
+    "apiVersion": "40.0",
+    "org": "System",
+    "skipCertificateCheck": true
+  },
+  "tenant": {
+    "orgName": "ChunghwaOrg",
+    "orgVdcName": "ChunghwaOrg-VDC",
+    "orgVdcId": null
+  },
+  "portGroup": {
+    "source": "ds-10-190-025",
+    "destinationSuffix": "-new",
+    "sources": [
+      {
+        "name": "ds-10-190-025",
+        "vlan": 2525,
+        "id": "dvportgroup-1641"
+      },
+      {
+        "name": "ds-10-190-133",
+        "vlan": 2633,
+        "id": "dvportgroup-257258"
+      },
+      {
+        "name": "ds-10-190-024",
+        "vlan": 2524,
+        "id": "dvportgroup-1640"
+      },
+      {
+        "name": "ds-10-190-147",
+        "vlan": 2647,
+        "id": "dvportgroup-170066"
+      },
+      {
+        "name": "ds-10-190-059",
+        "vlan": 2559,
+        "id": "dvportgroup-1882"
+      },
+      {
+        "name": "ds-10-190-134",
+        "vlan": 2634,
+        "id": "dvportgroup-257259"
+      },
+      {
+        "name": "ds-10-190-131",
+        "vlan": 2631,
+        "id": "dvportgroup-257256"
+      },
+      {
+        "name": "ds-10-190-132",
+        "vlan": 2632,
+        "id": "dvportgroup-257257"
+      },
+      {
+        "name": "ds-10-190-196",
+        "vlan": 2696,
+        "id": "dvportgroup-257499"
+      },
+      {
+        "name": "ds-10-190-029",
+        "vlan": 2529,
+        "id": "dvportgroup-1645"
+      },
+      {
+        "name": "ds-10-190-028",
+        "vlan": 2528,
+        "id": "dvportgroup-1644"
+      },
+      {
+        "name": "ds-10-190-146",
+        "vlan": 2646,
+        "id": "dvportgroup-170062"
+      },
+      {
+        "name": "ds-10-190-061",
+        "vlan": 2561,
+        "id": "dvportgroup-1886"
+      },
+      {
+        "name": "ds-10-190-027",
+        "vlan": 2527,
+        "id": "dvportgroup-1643"
+      },
+      {
+        "name": "ds-10-190-026",
+        "vlan": 2526,
+        "id": "dvportgroup-1642"
+      },
+      {
+        "name": "ds-10-190-033",
+        "vlan": 2533,
+        "id": "dvportgroup-1649"
+      },
+      {
+        "name": "ds-10-190-032",
+        "vlan": 2532,
+        "id": "dvportgroup-1648"
+      },
+      {
+        "name": "ds-10-190-031",
+        "vlan": 2531,
+        "id": "dvportgroup-1647"
+      },
+      {
+        "name": "ds-10-190-030",
+        "vlan": 2530,
+        "id": "dvportgroup-1646"
+      },
+      {
+        "name": "ds-10-191-030",
+        "vlan": 2830,
+        "id": "dvportgroup-261195"
+      },
+      {
+        "name": "ds-10-190-122",
+        "vlan": 2622,
+        "id": "dvportgroup-71263"
+      },
+      {
+        "name": "ds-10-190-121",
+        "vlan": 2621,
+        "id": "dvportgroup-71262"
+      },
+      {
+        "name": "ds-10-190-163",
+        "vlan": 2663,
+        "id": "dvportgroup-241106"
+      },
+      {
+        "name": "ds-10-190-189",
+        "vlan": 2689,
+        "id": "dvportgroup-257382"
+      },
+      {
+        "name": "ds-10-190-190",
+        "vlan": 2690,
+        "id": "dvportgroup-257383"
+      },
+      {
+        "name": "ds-10-191-028",
+        "vlan": 2828,
+        "id": "dvportgroup-258354"
+      },
+      {
+        "name": "ds-10-190-036",
+        "vlan": 2536,
+        "id": "dvportgroup-1652"
+      },
+      {
+        "name": "ds-10-191-074",
+        "vlan": 2874,
+        "id": "dvportgroup-260657"
+      },
+      {
+        "name": "ds-10-191-091",
+        "vlan": 2891,
+        "id": "dvportgroup-261625"
+      },
+      {
+        "name": "ds-10-190-035",
+        "vlan": 2535,
+        "id": "dvportgroup-1651"
+      },
+      {
+        "name": "ds-10-190-034",
+        "vlan": 2534,
+        "id": "dvportgroup-1650"
+      },
+      {
+        "name": "ds-10-190-040",
+        "vlan": 2540,
+        "id": "dvportgroup-1656"
+      },
+      {
+        "name": "ds-10-190-039",
+        "vlan": 2539,
+        "id": "dvportgroup-1655"
+      },
+      {
+        "name": "ds-10-190-123",
+        "vlan": 2623,
+        "id": "dvportgroup-63508"
+      },
+      {
+        "name": "ds-10-190-038",
+        "vlan": 2538,
+        "id": "dvportgroup-1654"
+      },
+      {
+        "name": "ds-10-190-037",
+        "vlan": 2537,
+        "id": "dvportgroup-1653"
+      },
+      {
+        "name": "ds-10-190-219",
+        "vlan": 2719,
+        "id": "dvportgroup-257805"
+      },
+      {
+        "name": "ds-10-190-043",
+        "vlan": 2543,
+        "id": "dvportgroup-1659"
+      },
+      {
+        "name": "ds-10-190-220",
+        "vlan": 2720,
+        "id": "dvportgroup-257806"
+      },
+      {
+        "name": "ds-10-190-042",
+        "vlan": 2542,
+        "id": "dvportgroup-1658"
+      },
+      {
+        "name": "ds-10-190-041",
+        "vlan": 2541,
+        "id": "dvportgroup-1657"
+      },
+      {
+        "name": "ds-10-190-221",
+        "vlan": 2721,
+        "id": "dvportgroup-257807"
+      },
+      {
+        "name": "ds-10-190-187",
+        "vlan": 2687,
+        "id": "dvportgroup-257371"
+      },
+      {
+        "name": "ds-10-190-158",
+        "vlan": 2658,
+        "id": "dvportgroup-204720"
+      },
+      {
+        "name": "ds-10-190-161",
+        "vlan": 2661,
+        "id": "dvportgroup-238871"
+      },
+      {
+        "name": "ds-10-190-119",
+        "vlan": 2619,
+        "id": "dvportgroup-62409"
+      },
+      {
+        "name": "ds-10-190-186",
+        "vlan": 2686,
+        "id": "dvportgroup-257370"
+      },
+      {
+        "name": "ds-10-191-035",
+        "vlan": 2835,
+        "id": "dvportgroup-258583"
+      },
+      {
+        "name": "ds-10-190-083",
+        "vlan": 2583,
+        "id": "dvportgroup-2038"
+      },
+      {
+        "name": "ds-10-190-096",
+        "vlan": 2596,
+        "id": "dvportgroup-2159"
+      },
+      {
+        "name": "ds-10-191-024",
+        "vlan": 2824,
+        "id": "dvportgroup-259217"
+      },
+      {
+        "name": "ds-10-190-084",
+        "vlan": 2584,
+        "id": "dvportgroup-2039"
+      },
+      {
+        "name": "ds-10-190-080",
+        "vlan": 2580,
+        "id": "dvportgroup-1980"
+      },
+      {
+        "name": "ds-10-191-026",
+        "vlan": 2826,
+        "id": "dvportgroup-258367"
+      },
+      {
+        "name": "ds-10-190-007",
+        "vlan": 2507,
+        "id": "dvportgroup-1623"
+      },
+      {
+        "name": "ds-10-190-107",
+        "vlan": 2607,
+        "id": "dvportgroup-2276"
+      },
+      {
+        "name": "ds-10-190-117",
+        "vlan": 2617,
+        "id": "dvportgroup-62407"
+      },
+      {
+        "name": "ds-10-190-006",
+        "vlan": 2506,
+        "id": "dvportgroup-1622"
+      },
+      {
+        "name": "ds-10-190-118",
+        "vlan": 2618,
+        "id": "dvportgroup-62408"
+      },
+      {
+        "name": "ds-10-190-005",
+        "vlan": 2505,
+        "id": "dvportgroup-1621"
+      },
+      {
+        "name": "ds-10-190-004",
+        "vlan": 2504,
+        "id": "dvportgroup-1620"
+      },
+      {
+        "name": "ds-10-190-082",
+        "vlan": 2582,
+        "id": "dvportgroup-2037"
+      },
+      {
+        "name": "ds-10-190-116",
+        "vlan": 2616,
+        "id": "dvportgroup-62406"
+      },
+      {
+        "name": "ds-10-190-011",
+        "vlan": 2511,
+        "id": "dvportgroup-1627"
+      },
+      {
+        "name": "ds-10-190-010",
+        "vlan": 2510,
+        "id": "dvportgroup-1626"
+      },
+      {
+        "name": "ds-10-190-009",
+        "vlan": 2509,
+        "id": "dvportgroup-1625"
+      },
+      {
+        "name": "ds-10-190-008",
+        "vlan": 2508,
+        "id": "dvportgroup-1624"
+      },
+      {
+        "name": "ds-10-190-013",
+        "vlan": 2513,
+        "id": "dvportgroup-1629"
+      },
+      {
+        "name": "ds-10-190-012",
+        "vlan": 2512,
+        "id": "dvportgroup-1628"
+      },
+      {
+        "name": "ds-10-190-164",
+        "vlan": 2664,
+        "id": "dvportgroup-241126"
+      },
+      {
+        "name": "ds-10-190-086",
+        "vlan": 2586,
+        "id": "dvportgroup-2041"
+      },
+      {
+        "name": "ds-10-190-125",
+        "vlan": 2625,
+        "id": "dvportgroup-90124"
+      },
+      {
+        "name": "ds-10-190-087",
+        "vlan": 2587,
+        "id": "dvportgroup-2042"
+      },
+      {
+        "name": "ds-10-190-100",
+        "vlan": 2600,
+        "id": "dvportgroup-2163"
+      },
+      {
+        "name": "ds-10-190-165",
+        "vlan": 2665,
+        "id": "dvportgroup-241127"
+      },
+      {
+        "name": "ds-10-190-088",
+        "vlan": 2588,
+        "id": "dvportgroup-2043"
+      },
+      {
+        "name": "ds-10-190-101",
+        "vlan": 2601,
+        "id": "dvportgroup-2164"
+      },
+      {
+        "name": "ds-10-190-089",
+        "vlan": 2589,
+        "id": "dvportgroup-2044"
+      },
+      {
+        "name": "ds-10-190-102",
+        "vlan": 2602,
+        "id": "dvportgroup-2165"
+      },
+      {
+        "name": "ds-10-190-166",
+        "vlan": 2666,
+        "id": "dvportgroup-241129"
+      },
+      {
+        "name": "ds-10-191-009",
+        "vlan": 2809,
+        "id": "dvportgroup-258134"
+      },
+      {
+        "name": "ds-10-191-010",
+        "vlan": 2810,
+        "id": "dvportgroup-258135"
+      },
+      {
+        "name": "ds-10-190-097",
+        "vlan": 2597,
+        "id": "dvportgroup-2160"
+      },
+      {
+        "name": "ds-10-191-061",
+        "vlan": 2861,
+        "id": "dvportgroup-259464"
+      },
+      {
+        "name": "ds-10-190-085",
+        "vlan": 2585,
+        "id": "dvportgroup-2040"
+      },
+      {
+        "name": "ds-10-191-060",
+        "vlan": 2860,
+        "id": "dvportgroup-259463"
+      },
+      {
+        "name": "ds-10-190-014",
+        "vlan": 2514,
+        "id": "dvportgroup-1630"
+      },
+      {
+        "name": "ds-10-190-018",
+        "vlan": 2518,
+        "id": "dvportgroup-1634"
+      },
+      {
+        "name": "ds-10-190-103",
+        "vlan": 2603,
+        "id": "dvportgroup-2166"
+      },
+      {
+        "name": "ds-10-190-017",
+        "vlan": 2517,
+        "id": "dvportgroup-1633"
+      },
+      {
+        "name": "ds-10-190-228",
+        "vlan": 2728,
+        "id": "dvportgroup-257824"
+      },
+      {
+        "name": "ds-10-191-058",
+        "vlan": 2858,
+        "id": "dvportgroup-259209"
+      },
+      {
+        "name": "ds-10-190-016",
+        "vlan": 2516,
+        "id": "dvportgroup-1632"
+      },
+      {
+        "name": "ds-10-190-015",
+        "vlan": 2515,
+        "id": "dvportgroup-1631"
+      },
+      {
+        "name": "ds-10-190-022",
+        "vlan": 2522,
+        "id": "dvportgroup-1638"
+      },
+      {
+        "name": "ds-10-190-021",
+        "vlan": 2521,
+        "id": "dvportgroup-1637"
+      },
+      {
+        "name": "ds-10-190-020",
+        "vlan": 2520,
+        "id": "dvportgroup-1636"
+      },
+      {
+        "name": "ds-10-190-229",
+        "vlan": 2729,
+        "id": "dvportgroup-257825"
+      },
+      {
+        "name": "ds-10-190-019",
+        "vlan": 2519,
+        "id": "dvportgroup-1635"
+      },
+      {
+        "name": "ds-10-190-230",
+        "vlan": 2730,
+        "id": "dvportgroup-257826"
+      },
+      {
+        "name": "ds-10-190-023",
+        "vlan": 2523,
+        "id": "dvportgroup-1639"
+      },
+      {
+        "name": "ds-10-191-054",
+        "vlan": 2854,
+        "id": "dvportgroup-259359"
+      },
+      {
+        "name": "ds-10-190-215",
+        "vlan": 2715,
+        "id": "dvportgroup-257854"
+      },
+      {
+        "name": "ds-10-190-216",
+        "vlan": 2716,
+        "id": "dvportgroup-257855"
+      },
+      {
+        "name": "ds-10-190-207",
+        "vlan": 2707,
+        "id": "dvportgroup-257739"
+      },
+      {
+        "name": "ds-10-191-018",
+        "vlan": 2818,
+        "id": "dvportgroup-258828"
+      },
+      {
+        "name": "ds-10-191-019",
+        "vlan": 2819,
+        "id": "dvportgroup-258829"
+      },
+      {
+        "name": "ds-10-190-205",
+        "vlan": 2705,
+        "id": "dvportgroup-257737"
+      },
+      {
+        "name": "ds-10-190-206",
+        "vlan": 2706,
+        "id": "dvportgroup-257738"
+      },
+      {
+        "name": "ds-10-190-151",
+        "vlan": 2651,
+        "id": "dvportgroup-166036"
+      },
+      {
+        "name": "ds-10-190-139",
+        "vlan": 2639,
+        "id": "dvportgroup-145336"
+      },
+      {
+        "name": "ds-10-191-056",
+        "vlan": 2856,
+        "id": "dvportgroup-259246"
+      },
+      {
+        "name": "ds-10-191-021",
+        "vlan": 2821,
+        "id": "dvportgroup-259124"
+      },
+      {
+        "name": "ds-10-191-057",
+        "vlan": 2857,
+        "id": "dvportgroup-259243"
+      },
+      {
+        "name": "ds-10-190-217",
+        "vlan": 2717,
+        "id": "dvportgroup-257963"
+      },
+      {
+        "name": "ds-10-191-011",
+        "vlan": 2811,
+        "id": "dvportgroup-258136"
+      },
+      {
+        "name": "ds-10-190-105",
+        "vlan": 2605,
+        "id": "dvportgroup-2426"
+      },
+      {
+        "name": "ds-10-190-223",
+        "vlan": 2723,
+        "id": "dvportgroup-257845"
+      },
+      {
+        "name": "ds-10-190-144",
+        "vlan": 2644,
+        "id": "dvportgroup-166031"
+      },
+      {
+        "name": "ds-10-190-224",
+        "vlan": 2724,
+        "id": "dvportgroup-257846"
+      },
+      {
+        "name": "ds-10-190-143",
+        "vlan": 2643,
+        "id": "dvportgroup-166030"
+      },
+      {
+        "name": "ds-10-190-218",
+        "vlan": 2718,
+        "id": "dvportgroup-257964"
+      },
+      {
+        "name": "ds-10-191-041",
+        "vlan": 2841,
+        "id": "dvportgroup-258811"
+      },
+      {
+        "name": "ds-10-190-222",
+        "vlan": 2722,
+        "id": "dvportgroup-257844"
+      },
+      {
+        "name": "ds-10-191-042",
+        "vlan": 2842,
+        "id": "dvportgroup-258812"
+      },
+      {
+        "name": "ds-10-190-225",
+        "vlan": 2725,
+        "id": "dvportgroup-257847"
+      },
+      {
+        "name": "ds-10-190-106",
+        "vlan": 2606,
+        "id": "dvportgroup-2427"
+      },
+      {
+        "name": "ds-10-190-141",
+        "vlan": 2641,
+        "id": "dvportgroup-166023"
+      },
+      {
+        "name": "ds-10-190-142",
+        "vlan": 2642,
+        "id": "dvportgroup-166029"
+      },
+      {
+        "name": "ds-10-190-047",
+        "vlan": 2547,
+        "id": "dvportgroup-1663"
+      },
+      {
+        "name": "ds-10-190-046",
+        "vlan": 2546,
+        "id": "dvportgroup-1662"
+      },
+      {
+        "name": "ds-10-191-099",
+        "vlan": 2899,
+        "id": "dvportgroup-493660"
+      },
+      {
+        "name": "ds-10-190-045",
+        "vlan": 2545,
+        "id": "dvportgroup-1661"
+      },
+      {
+        "name": "ds-10-190-044",
+        "vlan": 2544,
+        "id": "dvportgroup-1660"
+      },
+      {
+        "name": "ds-10-190-195",
+        "vlan": 2695,
+        "id": "dvportgroup-257510"
+      },
+      {
+        "name": "ds-10-190-238",
+        "vlan": 2738,
+        "id": "dvportgroup-258049"
+      },
+      {
+        "name": "ds-10-190-226",
+        "vlan": 2726,
+        "id": "dvportgroup-257878"
+      },
+      {
+        "name": "ds-10-191-023",
+        "vlan": 2823,
+        "id": "dvportgroup-258967"
+      },
+      {
+        "name": "ds-10-191-067",
+        "vlan": 2867,
+        "id": "dvportgroup-260004"
+      },
+      {
+        "name": "ds-10-190-240",
+        "vlan": 2740,
+        "id": "dvportgroup-1666"
+      },
+      {
+        "name": "ds-10-190-153",
+        "vlan": 2653,
+        "id": "dvportgroup-192076"
+      },
+      {
+        "name": "ds-10-190-227",
+        "vlan": 2727,
+        "id": "dvportgroup-257879"
+      },
+      {
+        "name": "ds-10-190-049",
+        "vlan": 2549,
+        "id": "dvportgroup-1665"
+      },
+      {
+        "name": "ds-10-190-048",
+        "vlan": 2548,
+        "id": "dvportgroup-1664"
+      },
+      {
+        "name": "ds-10-190-120",
+        "vlan": 2620,
+        "id": "dvportgroup-257519"
+      },
+      {
+        "name": "ds-10-190-154",
+        "vlan": 2654,
+        "id": "dvportgroup-192079"
+      },
+      {
+        "name": "ds-10-191-022",
+        "vlan": 2822,
+        "id": "dvportgroup-258969"
+      },
+      {
+        "name": "ds-10-190-239",
+        "vlan": 2739,
+        "id": "dvportgroup-258050"
+      },
+      {
+        "name": "ds-10-190-126",
+        "vlan": 2626,
+        "id": "dvportgroup-258292"
+      },
+      {
+        "name": "ds-10-190-140",
+        "vlan": 2640,
+        "id": "dvportgroup-188364"
+      },
+      {
+        "name": "ds-10-190-081",
+        "vlan": 2581,
+        "id": "dvportgroup-2088"
+      },
+      {
+        "name": "ds-10-190-129",
+        "vlan": 2629,
+        "id": "dvportgroup-258173"
+      },
+      {
+        "name": "ds-10-190-155",
+        "vlan": 2655,
+        "id": "dvportgroup-192080"
+      },
+      {
+        "name": "ds-10-190-211",
+        "vlan": 2711,
+        "id": "dvportgroup-257760"
+      },
+      {
+        "name": "ds-10-191-013",
+        "vlan": 2813,
+        "id": "dvportgroup-258178"
+      },
+      {
+        "name": "ds-10-190-152",
+        "vlan": 2652,
+        "id": "dvportgroup-183358"
+      },
+      {
+        "name": "ds-10-190-212",
+        "vlan": 2712,
+        "id": "dvportgroup-257761"
+      },
+      {
+        "name": "ds-10-191-014",
+        "vlan": 2814,
+        "id": "dvportgroup-258179"
+      },
+      {
+        "name": "ds-10-190-245",
+        "vlan": 2745,
+        "id": "dvportgroup-387580"
+      },
+      {
+        "name": "ds-10-190-231",
+        "vlan": 2731,
+        "id": "dvportgroup-257880"
+      },
+      {
+        "name": "ds-10-191-012",
+        "vlan": 2812,
+        "id": "dvportgroup-258177"
+      },
+      {
+        "name": "ds-10-190-128",
+        "vlan": 2628,
+        "id": "dvportgroup-257984"
+      },
+      {
+        "name": "ds-10-191-053",
+        "vlan": 2853,
+        "id": "dvportgroup-259128"
+      },
+      {
+        "name": "ds-10-191-015",
+        "vlan": 2815,
+        "id": "dvportgroup-258158"
+      },
+      {
+        "name": "ds-10-191-052",
+        "vlan": 2852,
+        "id": "dvportgroup-259127"
+      },
+      {
+        "name": "ds-10-190-127",
+        "vlan": 2627,
+        "id": "dvportgroup-257983"
+      },
+      {
+        "name": "ds-10-191-016",
+        "vlan": 2816,
+        "id": "dvportgroup-258159"
+      },
+      {
+        "name": "ds-10-191-051",
+        "vlan": 2851,
+        "id": "dvportgroup-259126"
+      },
+      {
+        "name": "ds-10-190-197",
+        "vlan": 2697,
+        "id": "dvportgroup-257504"
+      },
+      {
+        "name": "ds-10-190-198",
+        "vlan": 2698,
+        "id": "dvportgroup-257505"
+      },
+      {
+        "name": "ds-10-191-040",
+        "vlan": 2840,
+        "id": "dvportgroup-258715"
+      },
+      {
+        "name": "ds-10-190-137",
+        "vlan": 2637,
+        "id": "dvportgroup-214138"
+      },
+      {
+        "name": "ds-10-191-017",
+        "vlan": 2817,
+        "id": "dvportgroup-258160"
+      },
+      {
+        "name": "ds-10-191-098",
+        "vlan": 2898,
+        "id": "dvportgroup-331915"
+      },
+      {
+        "name": "ds-10-190-136",
+        "vlan": 2636,
+        "id": "dvportgroup-113875"
+      },
+      {
+        "name": "ds-10-190-060",
+        "vlan": 2560,
+        "id": "dvportgroup-2096"
+      },
+      {
+        "name": "ds-10-191-003",
+        "vlan": 2803,
+        "id": "dvportgroup-258288"
+      },
+      {
+        "name": "ds-10-191-001",
+        "vlan": 2801,
+        "id": "dvportgroup-258286"
+      },
+      {
+        "name": "ds-10-191-002",
+        "vlan": 2802,
+        "id": "dvportgroup-258287"
+      },
+      {
+        "name": "ds-10-191-093",
+        "vlan": 2893,
+        "id": "dvportgroup-276375"
+      },
+      {
+        "name": "ds-10-191-254",
+        "vlan": 3054,
+        "id": "dvportgroup-260029"
+      },
+      {
+        "name": "ds-10-190-202",
+        "vlan": 2702,
+        "id": "dvportgroup-257652"
+      },
+      {
+        "name": "ds-10-190-069",
+        "vlan": 2569,
+        "id": "dvportgroup-1924"
+      },
+      {
+        "name": "ds-10-190-068",
+        "vlan": 2568,
+        "id": "dvportgroup-1923"
+      },
+      {
+        "name": "ds-10-190-149",
+        "vlan": 2649,
+        "id": "dvportgroup-162393"
+      },
+      {
+        "name": "ds-10-191-081",
+        "vlan": 2881,
+        "id": "dvportgroup-260708"
+      },
+      {
+        "name": "ds-10-190-150",
+        "vlan": 2650,
+        "id": "dvportgroup-162394"
+      },
+      {
+        "name": "ds-10-190-138",
+        "vlan": 2638,
+        "id": "dvportgroup-257540"
+      },
+      {
+        "name": "ds-10-191-050",
+        "vlan": 2850,
+        "id": "dvportgroup-259047"
+      },
+      {
+        "name": "ds-10-190-092",
+        "vlan": 2592,
+        "id": "dvportgroup-2104"
+      },
+      {
+        "name": "ds-10-190-213",
+        "vlan": 2713,
+        "id": "dvportgroup-257762"
+      },
+      {
+        "name": "ds-10-190-104",
+        "vlan": 2604,
+        "id": "dvportgroup-2221"
+      },
+      {
+        "name": "ds-10-190-183",
+        "vlan": 2683,
+        "id": "dvportgroup-257526"
+      },
+      {
+        "name": "ds-10-190-233",
+        "vlan": 2733,
+        "id": "dvportgroup-257889"
+      },
+      {
+        "name": "ds-10-190-184",
+        "vlan": 2684,
+        "id": "dvportgroup-257527"
+      },
+      {
+        "name": "ds-10-191-025",
+        "vlan": 2825,
+        "id": "dvportgroup-258979"
+      },
+      {
+        "name": "ds-10-190-148",
+        "vlan": 2648,
+        "id": "dvportgroup-162391"
+      },
+      {
+        "name": "ds-10-190-156",
+        "vlan": 2656,
+        "id": "dvportgroup-196044"
+      },
+      {
+        "name": "ds-10-190-076",
+        "vlan": 2576,
+        "id": "dvportgroup-2223"
+      },
+      {
+        "name": "ds-10-190-091",
+        "vlan": 2591,
+        "id": "dvportgroup-2103"
+      },
+      {
+        "name": "ds-10-190-182",
+        "vlan": 2682,
+        "id": "dvportgroup-257525"
+      },
+      {
+        "name": "ds-10-190-232",
+        "vlan": 2732,
+        "id": "dvportgroup-257888"
+      },
+      {
+        "name": "ds-10-191-020",
+        "vlan": 2820,
+        "id": "dvportgroup-258977"
+      },
+      {
+        "name": "ds-10-190-071",
+        "vlan": 2571,
+        "id": "dvportgroup-1935"
+      },
+      {
+        "name": "ds-10-190-185",
+        "vlan": 2685,
+        "id": "dvportgroup-257528"
+      },
+      {
+        "name": "ds-10-190-072",
+        "vlan": 2572,
+        "id": "dvportgroup-1936"
+      },
+      {
+        "name": "ds-10-190-135",
+        "vlan": 2635,
+        "id": "dvportgroup-110148"
+      },
+      {
+        "name": "ds-10-190-073",
+        "vlan": 2573,
+        "id": "dvportgroup-2231"
+      },
+      {
+        "name": "ds-10-190-112",
+        "vlan": 2612,
+        "id": "dvportgroup-16351"
+      },
+      {
+        "name": "ds-10-190-201",
+        "vlan": 2701,
+        "id": "dvportgroup-257651"
+      },
+      {
+        "name": "ds-10-190-234",
+        "vlan": 2734,
+        "id": "dvportgroup-257890"
+      },
+      {
+        "name": "ds-10-190-235",
+        "vlan": 2735,
+        "id": "dvportgroup-257891"
+      },
+      {
+        "name": "ds-10-190-171",
+        "vlan": 2671,
+        "id": "dvportgroup-257313"
+      },
+      {
+        "name": "ds-10-191-029",
+        "vlan": 2829,
+        "id": "dvportgroup-258402"
+      },
+      {
+        "name": "ds-10-190-172",
+        "vlan": 2672,
+        "id": "dvportgroup-257314"
+      },
+      {
+        "name": "ds-10-191-069",
+        "vlan": 2869,
+        "id": "dvportgroup-259610"
+      },
+      {
+        "name": "ds-10-190-168",
+        "vlan": 2668,
+        "id": "dvportgroup-257318"
+      },
+      {
+        "name": "ds-10-190-108",
+        "vlan": 2608,
+        "id": "dvportgroup-2432"
+      },
+      {
+        "name": "ds-10-191-033",
+        "vlan": 2833,
+        "id": "dvportgroup-258526"
+      },
+      {
+        "name": "ds-10-190-062",
+        "vlan": 2562,
+        "id": "dvportgroup-1902"
+      },
+      {
+        "name": "ds-10-190-169",
+        "vlan": 2669,
+        "id": "dvportgroup-257319"
+      },
+      {
+        "name": "ds-10-191-070",
+        "vlan": 2870,
+        "id": "dvportgroup-259739"
+      },
+      {
+        "name": "ds-10-190-058",
+        "vlan": 2558,
+        "id": "dvportgroup-1905"
+      },
+      {
+        "name": "ds-10-190-057",
+        "vlan": 2557,
+        "id": "dvportgroup-1904"
+      },
+      {
+        "name": "ds-10-190-160",
+        "vlan": 2660,
+        "id": "dvportgroup-238917"
+      },
+      {
+        "name": "ds-10-190-170",
+        "vlan": 2670,
+        "id": "dvportgroup-257320"
+      },
+      {
+        "name": "ds-10-190-179",
+        "vlan": 2679,
+        "id": "dvportgroup-257786"
+      },
+      {
+        "name": "ds-10-190-203",
+        "vlan": 2703,
+        "id": "dvportgroup-257666"
+      },
+      {
+        "name": "ds-10-190-180",
+        "vlan": 2680,
+        "id": "dvportgroup-257787"
+      },
+      {
+        "name": "ds-10-191-090",
+        "vlan": 2890,
+        "id": "dvportgroup-261129"
+      },
+      {
+        "name": "ds-10-190-181",
+        "vlan": 2681,
+        "id": "dvportgroup-257788"
+      },
+      {
+        "name": "ds-10-191-089",
+        "vlan": 2889,
+        "id": "dvportgroup-261128"
+      },
+      {
+        "name": "ds-10-191-068",
+        "vlan": 2868,
+        "id": "dvportgroup-259609"
+      },
+      {
+        "name": "ds-10-190-063",
+        "vlan": 2563,
+        "id": "dvportgroup-1917"
+      },
+      {
+        "name": "ds-10-190-159",
+        "vlan": 2659,
+        "id": "dvportgroup-236509"
+      },
+      {
+        "name": "ds-10-190-064",
+        "vlan": 2564,
+        "id": "dvportgroup-1918"
+      },
+      {
+        "name": "ds-10-191-006",
+        "vlan": 2806,
+        "id": "dvportgroup-258082"
+      },
+      {
+        "name": "ds-10-191-007",
+        "vlan": 2807,
+        "id": "dvportgroup-258083"
+      },
+      {
+        "name": "ds-10-190-145",
+        "vlan": 2645,
+        "id": "dvportgroup-162803"
+      },
+      {
+        "name": "ds-10-191-004",
+        "vlan": 2804,
+        "id": "dvportgroup-258080"
+      },
+      {
+        "name": "ds-10-191-005",
+        "vlan": 2805,
+        "id": "dvportgroup-258081"
+      },
+      {
+        "name": "ds-10-191-008",
+        "vlan": 2808,
+        "id": "dvportgroup-258084"
+      },
+      {
+        "name": "ds-10-190-109",
+        "vlan": 2609,
+        "id": "dvportgroup-16499"
+      },
+      {
+        "name": "ds-10-190-124",
+        "vlan": 2624,
+        "id": "dvportgroup-70488"
+      },
+      {
+        "name": "ds-10-190-204",
+        "vlan": 2704,
+        "id": "dvportgroup-257671"
+      },
+      {
+        "name": "ds-10-191-032",
+        "vlan": 2832,
+        "id": "dvportgroup-258545"
+      },
+      {
+        "name": "ds-10-190-199",
+        "vlan": 2699,
+        "id": "dvportgroup-257578"
+      },
+      {
+        "name": "ds-10-191-073",
+        "vlan": 2873,
+        "id": "dvportgroup-259997"
+      },
+      {
+        "name": "ds-10-190-130",
+        "vlan": 2630,
+        "id": "dvportgroup-258301"
+      },
+      {
+        "name": "ds-10-191-031",
+        "vlan": 2831,
+        "id": "dvportgroup-258544"
+      },
+      {
+        "name": "ds-10-190-167",
+        "vlan": 2667,
+        "id": "dvportgroup-256006"
+      },
+      {
+        "name": "ds-10-190-200",
+        "vlan": 2700,
+        "id": "dvportgroup-257579"
+      },
+      {
+        "name": "ds-10-190-051",
+        "vlan": 2551,
+        "id": "dvportgroup-1726"
+      },
+      {
+        "name": "ds-10-190-050",
+        "vlan": 2550,
+        "id": "dvportgroup-1725"
+      },
+      {
+        "name": "ds-10-199-237",
+        "vlan": 2796,
+        "id": "dvportgroup-283860"
+      },
+      {
+        "name": "ds-10-190-052",
+        "vlan": 2552,
+        "id": "dvportgroup-1727"
+      },
+      {
+        "name": "ds-10-191-096",
+        "vlan": 2896,
+        "id": "dvportgroup-295725"
+      },
+      {
+        "name": "ds-10-191-044",
+        "vlan": 2844,
+        "id": "dvportgroup-258794"
+      },
+      {
+        "name": "ds-10-190-176",
+        "vlan": 2676,
+        "id": "dvportgroup-257340"
+      },
+      {
+        "name": "ds-10-190-177",
+        "vlan": 2677,
+        "id": "dvportgroup-257341"
+      },
+      {
+        "name": "ds-10-191-043",
+        "vlan": 2843,
+        "id": "dvportgroup-258793"
+      },
+      {
+        "name": "ds-10-190-208",
+        "vlan": 2708,
+        "id": "dvportgroup-257688"
+      },
+      {
+        "name": "ds-10-191-082",
+        "vlan": 2882,
+        "id": "dvportgroup-260735"
+      },
+      {
+        "name": "ds-10-190-209",
+        "vlan": 2709,
+        "id": "dvportgroup-257689"
+      },
+      {
+        "name": "ds-10-190-113",
+        "vlan": 2613,
+        "id": "dvportgroup-33513"
+      },
+      {
+        "name": "ds-10-190-056",
+        "vlan": 2556,
+        "id": "dvportgroup-1851"
+      },
+      {
+        "name": "ds-10-190-000",
+        "vlan": 2500,
+        "id": "dvportgroup-1616"
+      },
+      {
+        "name": "ds-10-190-079",
+        "vlan": 2579,
+        "id": "dvportgroup-1979"
+      },
+      {
+        "name": "ds-10-190-114",
+        "vlan": 2614,
+        "id": "dvportgroup-33515"
+      },
+      {
+        "name": "ds-10-190-055",
+        "vlan": 2555,
+        "id": "dvportgroup-1857"
+      },
+      {
+        "name": "ds-10-190-078",
+        "vlan": 2578,
+        "id": "dvportgroup-1978"
+      },
+      {
+        "name": "ds-10-190-054",
+        "vlan": 2554,
+        "id": "dvportgroup-1856"
+      },
+      {
+        "name": "ds-10-190-077",
+        "vlan": 2577,
+        "id": "dvportgroup-1977"
+      },
+      {
+        "name": "ds-10-190-003",
+        "vlan": 2503,
+        "id": "dvportgroup-1619"
+      },
+      {
+        "name": "ds-10-190-002",
+        "vlan": 2502,
+        "id": "dvportgroup-1618"
+      },
+      {
+        "name": "ds-10-190-001",
+        "vlan": 2501,
+        "id": "dvportgroup-1617"
+      },
+      {
+        "name": "ds-10-190-247",
+        "vlan": 2744,
+        "id": "dvportgroup-482375"
+      },
+      {
+        "name": "ds-10-190-210",
+        "vlan": 2710,
+        "id": "dvportgroup-257690"
+      },
+      {
+        "name": "ds-10-190-214",
+        "vlan": 2714,
+        "id": "dvportgroup-257691"
+      },
+      {
+        "name": "ds-10-190-093",
+        "vlan": 2593,
+        "id": "dvportgroup-2115"
+      },
+      {
+        "name": "ds-10-191-065",
+        "vlan": 2865,
+        "id": "dvportgroup-259657"
+      },
+      {
+        "name": "ds-10-190-094",
+        "vlan": 2594,
+        "id": "dvportgroup-2116"
+      },
+      {
+        "name": "ds-10-190-095",
+        "vlan": 2595,
+        "id": "dvportgroup-2117"
+      },
+      {
+        "name": "ds-10-190-188",
+        "vlan": 2688,
+        "id": "dvportgroup-257356"
+      },
+      {
+        "name": "ds-10-190-111",
+        "vlan": 2611,
+        "id": "dvportgroup-16502"
+      },
+      {
+        "name": "ds-10-190-074",
+        "vlan": 2574,
+        "id": "dvportgroup-2232"
+      },
+      {
+        "name": "ds-10-190-075",
+        "vlan": 2575,
+        "id": "dvportgroup-2233"
+      },
+      {
+        "name": "ds-10-191-059",
+        "vlan": 2859,
+        "id": "dvportgroup-259418"
+      },
+      {
+        "name": "ds-10-190-162",
+        "vlan": 2662,
+        "id": "dvportgroup-236414"
+      },
+      {
+        "name": "ds-10-190-237",
+        "vlan": 2737,
+        "id": "dvportgroup-257919"
+      },
+      {
+        "name": "ds-10-190-236",
+        "vlan": 2736,
+        "id": "dvportgroup-257918"
+      },
+      {
+        "name": "ds-10-190-175",
+        "vlan": 2675,
+        "id": "dvportgroup-257361"
+      },
+      {
+        "name": "ds-10-190-110",
+        "vlan": 2610,
+        "id": "dvportgroup-16500"
+      },
+      {
+        "name": "ds-10-190-173",
+        "vlan": 2673,
+        "id": "dvportgroup-257364"
+      },
+      {
+        "name": "ds-10-190-174",
+        "vlan": 2674,
+        "id": "dvportgroup-257365"
+      },
+      {
+        "name": "ds-10-191-066",
+        "vlan": 2866,
+        "id": "dvportgroup-259661"
+      },
+      {
+        "name": "ds-10-190-178",
+        "vlan": 2678,
+        "id": "dvportgroup-257345"
+      },
+      {
+        "name": "ds-10-191-045",
+        "vlan": 2845,
+        "id": "dvportgroup-258797"
+      },
+      {
+        "name": "ds-10-191-095",
+        "vlan": 2895,
+        "id": "dvportgroup-279493"
+      },
+      {
+        "name": "ds-10-191-094",
+        "vlan": 2894,
+        "id": "dvportgroup-279492"
+      },
+      {
+        "name": "ds-10-190-066",
+        "vlan": 2566,
+        "id": "dvportgroup-1951"
+      },
+      {
+        "name": "ds-10-190-065",
+        "vlan": 2565,
+        "id": "dvportgroup-1950"
+      },
+      {
+        "name": "ds-10-190-191",
+        "vlan": 2691,
+        "id": "dvportgroup-257591"
+      },
+      {
+        "name": "ds-10-190-192",
+        "vlan": 2692,
+        "id": "dvportgroup-257592"
+      },
+      {
+        "name": "ds-10-199-236",
+        "vlan": 2795,
+        "id": "dvportgroup-283859"
+      },
+      {
+        "name": "ds-10-190-193",
+        "vlan": 2693,
+        "id": "dvportgroup-257593"
+      },
+      {
+        "name": "ds-10-190-194",
+        "vlan": 2694,
+        "id": "dvportgroup-257594"
+      }
+    ]
+  }
+}
