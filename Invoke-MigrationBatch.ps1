@@ -46,6 +46,13 @@
   VCD (assumes the same user/password works for both - e.g. an SSO admin).
   Pass -SeparateCredentials to prompt twice, once per system.
 
+.PARAMETER SkipNicSwitch
+  Do NOT run step 3 (Switch-TenantVmNics.ps1). Build the destination
+  portgroups and import them as Org VDC Networks, but leave VMs on the
+  source network. Use this for staged migrations - import first, switch
+  later. Run the wrapper again without -SkipNicSwitch when ready, or run
+  step 3 manually per source.
+
 .PARAMETER Interactive
   Per-source confirmation. Before running each source the script prints its
   details (name, VLAN, needs[], dest portgroup name preview) and asks:
@@ -71,7 +78,8 @@ param(
     [string] $OrgVdcUrn,
     [int]    $Limit = 0,
     [switch] $SeparateCredentials,
-    [switch] $Interactive
+    [switch] $Interactive,
+    [switch] $SkipNicSwitch
 )
 
 $ErrorActionPreference = 'Stop'
@@ -228,9 +236,15 @@ try {
                 }
             }
             if ('step3' -in $src.needs) {
-                Write-Host "  -> step3 (switch NICs)..." -ForegroundColor DarkGray
-                & $step3Path -ConfigPath $tmpPath
-                $stepResults['step3'] = 'ok'   # step 3 writes migration-result, not a handoff
+                if ($SkipNicSwitch) {
+                    Write-Host "  -> step3 SKIPPED (-SkipNicSwitch)" -ForegroundColor DarkYellow
+                    $stepResults['step3'] = 'skipped-by-flag'
+                }
+                else {
+                    Write-Host "  -> step3 (switch NICs)..." -ForegroundColor DarkGray
+                    & $step3Path -ConfigPath $tmpPath
+                    $stepResults['step3'] = 'ok'   # step 3 writes migration-result, not a handoff
+                }
             }
             $elapsed = ((Get-Date) - $startedAt).TotalSeconds
             Write-Host ("  [OK] {0:F1}s" -f $elapsed) -ForegroundColor Green
