@@ -55,7 +55,7 @@ $ErrorActionPreference = 'Stop'
 # --- Auto-detect repo layout (flat vs nested) ---------------------------
 $baseDir = if (Test-Path (Join-Path $PSScriptRoot 'lib')) { $PSScriptRoot }
            else { (Resolve-Path (Join-Path $PSScriptRoot '..')).Path }
-if (-not $ConfigPath)       { $ConfigPath       = Join-Path $baseDir 'config\config.json' }
+if (-not $ConfigPath)       { $ConfigPath       = Join-Path $baseDir 'config\configorg.json' }
 if (-not $PortgroupHandoff) { $PortgroupHandoff = Join-Path $baseDir 'state\portgroup-handoff.json' }
 if (-not $NetworkHandoff)   { $NetworkHandoff   = Join-Path $baseDir 'state\network-handoff.json' }
 
