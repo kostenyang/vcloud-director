@@ -96,8 +96,12 @@ $comparePath   = Join-Path $baseDir '00-build-config\Compare-MigrationState.ps1'
 $pgHandoff     = Join-Path $baseDir 'state\portgroup-handoff.json'
 $netHandoff    = Join-Path $baseDir 'state\network-handoff.json'
 
+# Soft precheck: warn but do not block. Each step file is only required if
+# its step actually runs - the per-source loop will fail loudly when it
+# tries to invoke a missing one. Lets the wrapper run even on partially
+# updated checkouts (e.g. wrapper at v1.3 but step 1 still at v1.1).
 foreach ($p in @($step1Path, $step2Path, $step3Path, $comparePath)) {
-    if (-not (Test-Path $p)) { throw "Required script missing: $p" }
+    if (-not (Test-Path $p)) { Write-Warning "Script not present (will fail if invoked): $p" }
 }
 
 # config.local.json overrides config.json (consistent with step 1 / 2 / 3)
