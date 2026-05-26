@@ -20,22 +20,22 @@
   Output JSON (default OutFile = ..\config\config-batch.json):
 
     {
-      "_meta": {
-        "generatedAt": "...", "generatedFrom": "...", "namePattern": "...",
-        "excludePattern": "...", "anomalies": [...]
-      },
       "vCenter": { "server": "...", "sourceVdsName": "vDS-TPE-Resource", ... },
       "vcd":     { ...from template... },
       "tenant":  { ...from template... },
       "portGroup": {
-        "source": "ds-10-190-025",         <-- v1.1 reads this
+        "source": "ds-10-190-025",         <-- v1.1 reads this (sources[0])
         "destinationSuffix": "-new",
-        "sources": [                        <-- wrapper iterates this
+        "sources": [                        <-- batch wrapper iterates this
           { "name": "ds-10-190-025", "vlan": 2525, "id": "dvportgroup-1641" },
           ...
         ]
       }
     }
+
+  No _meta block - shape matches exactly what step 1 / 2 / 3 read; sources[]
+  is the only addition for the batch wrapper. Anomalies are reported to
+  stdout but not written to the file.
 
 .PARAMETER BackupRoot
   Path to the unzipped vDS export directory (must contain META-INF\data.xml).
@@ -213,19 +213,9 @@ if (-not $tenant) {
 $firstSource = if ($sources.Count -gt 0) { $sources[0].name } else { '' }
 
 # --- Compose output (v1.1-compatible config + sources[] extension) ------
+# No _meta block - keeps the file minimal and matches the exact shape the
+# step 1 / 2 / 3 scripts read. Anomalies are still reported in stdout below.
 $out = [ordered]@{
-    _meta = [ordered]@{
-        schemaVersion   = 1
-        generatedAt     = (Get-Date).ToString('o')
-        generatedFrom   = $xmlPath
-        namePattern     = $NamePattern
-        excludePattern  = $ExcludePattern
-        anomalyPattern  = $AnomalyPattern
-        includeAllTypes = [bool]$IncludeAllTypes
-        totalScanned    = $total
-        emittedCount    = $sources.Count
-        anomalies       = $anomalies
-    }
     vCenter = $vCenter
     vcd     = $vcd
     tenant  = $tenant

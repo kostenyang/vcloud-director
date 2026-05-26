@@ -15,7 +15,7 @@
     "orgVdcName": "ecloud-stage"
   },
   "portGroup": {
-    "source": "ds-10-190-000",
+    "source": "ds-10-190-025",
     "destinationSuffix": "-new",
     "sources": [
       {
