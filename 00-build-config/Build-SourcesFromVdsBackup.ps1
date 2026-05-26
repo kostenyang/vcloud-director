@@ -87,9 +87,9 @@ param(
     [string] $BackupRoot,
     [string] $OutFile,
     [string] $TemplateConfig,
-    [string] $NamePattern    = '^ds-',
-    [string] $ExcludePattern = '-new$|-vlan|-1$',
-    [string] $AnomalyPattern = '^ds-\d+-\d+-\d+$',
+    [string] $NamePattern    = '',
+    [string] $ExcludePattern = '-new$|FT|VMotion|vtep|vsan',
+    [string] $AnomalyPattern = '',
     [switch] $IncludeAllTypes,
     [string] $DestinationSuffix = '-new'
 )

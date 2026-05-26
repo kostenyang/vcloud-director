@@ -2,7 +2,7 @@
   "vCenter": {
     "server": "tpe-vcha022.vs.local",
     "sourceVdsName": "vDS-TPE-Resource",
-    "destinationVdsName": "vDS-TPE-vCD"
+    "destinationVdsName": "vDS-TPE-vcd"
   },
   "vcd": {
     "server": "ecloud.cht.com.tw",
