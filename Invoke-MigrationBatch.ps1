@@ -211,11 +211,21 @@ try {
         Remove-Item $pgHandoff  -ErrorAction SilentlyContinue
         Remove-Item $netHandoff -ErrorAction SilentlyContinue
 
+        # Auto-escalate: step 3 needs network-handoff which only exists if
+        # step 2 ran this iteration (we just wiped it). So if step 3 is in
+        # needs but step 1 / 2 aren't, force them to run (they reuse the
+        # already-existing portgroup / network and just re-emit handoffs).
+        $effectiveNeeds = @($src.needs)
+        if ('step3' -in $effectiveNeeds -and -not $SkipNicSwitch) {
+            if ('step2' -notin $effectiveNeeds) { $effectiveNeeds = @($effectiveNeeds | Where-Object { $_ -ne 'step3' }) + 'step2' + 'step3' }
+            if ('step1' -notin $effectiveNeeds) { $effectiveNeeds = @('step1') + $effectiveNeeds }
+        }
+
         $stepResults = [ordered]@{}
         $status      = 'ok'
         $errMsg      = $null
         try {
-            if ('step1' -in $src.needs) {
+            if ('step1' -in $effectiveNeeds) {
                 Write-Host "  -> step1 (portgroup)..." -ForegroundColor DarkGray
                 & $step1Path -ConfigPath $tmpPath
                 $stepResults['step1'] = (Test-Path $pgHandoff) ? 'ok' : 'no-handoff'
@@ -225,7 +235,7 @@ try {
                     throw [System.Exception]::new("step1 early-return")
                 }
             }
-            if ('step2' -in $src.needs) {
+            if ('step2' -in $effectiveNeeds) {
                 Write-Host "  -> step2 (org vdc network)..." -ForegroundColor DarkGray
                 & $step2Path -ConfigPath $tmpPath
                 $stepResults['step2'] = (Test-Path $netHandoff) ? 'ok' : 'no-handoff'
@@ -235,7 +245,7 @@ try {
                     throw [System.Exception]::new("step2 early-return")
                 }
             }
-            if ('step3' -in $src.needs) {
+            if ('step3' -in $effectiveNeeds) {
                 if ($SkipNicSwitch) {
                     Write-Host "  -> step3 SKIPPED (-SkipNicSwitch)" -ForegroundColor DarkYellow
                     $stepResults['step3'] = 'skipped-by-flag'
