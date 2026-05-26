@@ -163,12 +163,31 @@ function Invoke-VcdOpenApi {
         [string] $Method = 'Get', $Body)
     $headers = @{ Authorization = "Bearer $($Session.Token)"; Accept = "application/json;version=$($Session.ApiVersion)" }
     $irmArgs = @{ Uri = "$($Session.BaseUrl)$Path"; Method = $Method; Headers = $headers }
+    $bodyJson = $null
     if ($PSBoundParameters.ContainsKey('Body') -and $null -ne $Body) {
-        $irmArgs.Body = ($Body | ConvertTo-Json -Depth 20)
+        $bodyJson = ($Body | ConvertTo-Json -Depth 20)
+        $irmArgs.Body = $bodyJson
         $irmArgs.ContentType = "application/json;version=$($Session.ApiVersion)"
     }
     if ($Session.SkipCertificateCheck) { $irmArgs.SkipCertificateCheck = $true }
-    Invoke-RestMethod @irmArgs
+    try {
+        Invoke-RestMethod @irmArgs
+    }
+    catch {
+        $code = $null
+        try { $code = $_.Exception.Response.StatusCode.value__ } catch {}
+        $vcdMsg = $null
+        if ($_.ErrorDetails -and $_.ErrorDetails.Message) {
+            $vcdMsg = $_.ErrorDetails.Message
+        }
+        $hint = "VCD $Method $Path returned HTTP $code"
+        if ($vcdMsg) { $hint += "`n  VCD response: $vcdMsg" }
+        if ($bodyJson -and $Method -ne 'Get') {
+            $preview = if ($bodyJson.Length -gt 600) { $bodyJson.Substring(0,600) + '... (truncated)' } else { $bodyJson }
+            $hint += "`n  Request body: $preview"
+        }
+        throw $hint
+    }
 }
 function Invoke-VcdLegacyApi {
     param([Parameter(Mandatory)] $Session, [Parameter(Mandatory)] [string] $Uri,
@@ -278,16 +297,27 @@ function Build-OnePortgroupClone {
 # ========================================================================
 function Wait-OrgVdcNetworkRealized {
     param($Session, [string] $Name, [string] $VdcUrn, [int] $TimeoutMin = 5)
-    $deadline = (Get-Date).AddMinutes($TimeoutMin)
+    $deadline   = (Get-Date).AddMinutes($TimeoutMin)
+    $lastStatus = '(not-yet-visible)'
+    $attempt    = 0
     do {
+        $attempt++
         Start-Sleep -Seconds 4
         $check = Invoke-VcdOpenApi -Session $Session -Path "/cloudapi/1.0.0/orgVdcNetworks?filter=name==$Name"
         $net   = Find-VdcNetworkOne -Resp $check -VdcUrn $VdcUrn
-    } while (-not ($net -and $net.status -eq 'REALIZED') -and (Get-Date) -lt $deadline)
-    if (-not ($net -and $net.status -eq 'REALIZED')) {
-        throw "Org VDC Network '$Name' did not reach REALIZED state"
-    }
-    $net
+        if ($net) {
+            $lastStatus = $net.status
+            Write-Host ("    [poll #{0}] {1} status={2}" -f $attempt, $Name, $lastStatus) -ForegroundColor DarkGray
+            if ($lastStatus -eq 'REALIZED') { return $net }
+            if ($lastStatus -match 'FAIL|ERROR|UNCONFIGURED') {
+                throw "Org VDC Network '$Name' is in '$lastStatus' state - check VCD UI / task log."
+            }
+        }
+        else {
+            Write-Host ("    [poll #{0}] {1} not yet queryable" -f $attempt, $Name) -ForegroundColor DarkGray
+        }
+    } while ((Get-Date) -lt $deadline)
+    throw "Org VDC Network '$Name' did not reach REALIZED in $TimeoutMin min. Last status: $lastStatus. Check VCD tenant UI -> Networks for actual state."
 }
 
 function Import-OneOrgVdcNetwork {
