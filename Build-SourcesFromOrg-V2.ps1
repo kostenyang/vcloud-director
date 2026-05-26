@@ -62,6 +62,27 @@ $ErrorActionPreference = 'Stop'
 
 
 # === Terminal-safe credential prompt (works without CredUI / over SSH) ===
+
+# =========================================================================
+# OPTIONAL: HARDCODED CREDENTIALS (filled in here means no prompt)
+# ----- SECURITY WARNING -----
+# If you put real values here, DO NOT commit this file to git!
+# These take precedence over the Read-Host prompt below.
+# Leave both blank to prompt interactively.
+# =========================================================================
+$DEFAULT_USERNAME = ''
+$DEFAULT_PASSWORD = ''
+
+function Get-HardcodedOrPromptCred {
+    param([string] $Message)
+    if ($DEFAULT_USERNAME -and $DEFAULT_PASSWORD) {
+        Write-Host "[CRED] Using hardcoded credentials from script header (user=$DEFAULT_USERNAME)" -ForegroundColor DarkYellow
+        $sec = ConvertTo-SecureString $DEFAULT_PASSWORD -AsPlainText -Force
+        return New-Object System.Management.Automation.PSCredential($DEFAULT_USERNAME, $sec)
+    }
+    Get-HardcodedOrPromptCred -Message $Message
+}
+
 function Get-CredentialSafe {
     param([string] $Message)
     Write-Host ''
@@ -194,7 +215,7 @@ function Get-VcdQuery {
 
 Write-Host "Build-SourcesFromOrg - tenant: $OrgName / VDC: $OrgVdcName" -ForegroundColor Cyan
 
-$vcdCred = Get-CredentialSafe -Message "VCD System administrator credentials ($VcdServer)"
+$vcdCred = Get-HardcodedOrPromptCred -Message "VCD System administrator credentials ($VcdServer)"
 $session = Connect-VcdApi -Server $VcdServer -Credential $vcdCred `
     -Org $VcdLoginOrg -ApiVersion $VcdApiVersion `
     -SkipCertificateCheck:$VcdSkipCertCheck

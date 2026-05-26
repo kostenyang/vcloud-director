@@ -47,6 +47,27 @@ $ErrorActionPreference = 'Stop'
 
 
 # === Terminal-safe credential prompt (works without CredUI / over SSH) ===
+
+# =========================================================================
+# OPTIONAL: HARDCODED CREDENTIALS (filled in here means no prompt)
+# ----- SECURITY WARNING -----
+# If you put real values here, DO NOT commit this file to git!
+# These take precedence over the Read-Host prompt below.
+# Leave both blank to prompt interactively.
+# =========================================================================
+$DEFAULT_USERNAME = ''
+$DEFAULT_PASSWORD = ''
+
+function Get-HardcodedOrPromptCred {
+    param([string] $Message)
+    if ($DEFAULT_USERNAME -and $DEFAULT_PASSWORD) {
+        Write-Host "[CRED] Using hardcoded credentials from script header (user=$DEFAULT_USERNAME)" -ForegroundColor DarkYellow
+        $sec = ConvertTo-SecureString $DEFAULT_PASSWORD -AsPlainText -Force
+        return New-Object System.Management.Automation.PSCredential($DEFAULT_USERNAME, $sec)
+    }
+    Get-HardcodedOrPromptCred -Message $Message
+}
+
 function Get-CredentialSafe {
     param([string] $Message)
     Write-Host ''
@@ -350,10 +371,10 @@ Import-Module VMware.VimAutomation.Vds -ErrorAction Stop
 
 # Credentials
 if ($SeparateCredentials) {
-    $vcCred  = Get-CredentialSafe -Message "vCenter credentials ($vcServer)"
-    $vcdCred = Get-CredentialSafe -Message "VCD System administrator credentials ($vcdServer)"
+    $vcCred  = Get-HardcodedOrPromptCred -Message "vCenter credentials ($vcServer)"
+    $vcdCred = Get-HardcodedOrPromptCred -Message "VCD System administrator credentials ($vcdServer)"
 } else {
-    $shared = Get-CredentialSafe -Message "Credentials for vCenter ($vcServer) AND VCD ($vcdServer) - one prompt, shared"
+    $shared = Get-HardcodedOrPromptCred -Message "Credentials for vCenter ($vcServer) AND VCD ($vcdServer) - one prompt, shared"
     $vcCred = $shared; $vcdCred = $shared
 }
 
