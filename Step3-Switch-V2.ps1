@@ -38,6 +38,19 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+
+# === Terminal-safe credential prompt (works without CredUI / over SSH) ===
+function Get-CredentialSafe {
+    param([string] $Message)
+    Write-Host ''
+    Write-Host "[CRED] $Message" -ForegroundColor Cyan
+    $user = Read-Host '  Username'
+    if ([string]::IsNullOrEmpty($user)) { throw 'Username empty - aborting' }
+    $pw = Read-Host '  Password' -AsSecureString
+    if (-not $pw -or $pw.Length -eq 0) { throw 'Password empty - aborting' }
+    New-Object System.Management.Automation.PSCredential($user, $pw)
+}
+
 if (-not $ConfigPath) { $ConfigPath = Join-Path $PSScriptRoot 'config\configorg.json' }
 $localCfg = Join-Path (Split-Path $ConfigPath) 'config.local.json'
 if (Test-Path $localCfg) { $ConfigPath = $localCfg }
@@ -167,7 +180,7 @@ function Find-VdcNetworkOne { param($Resp, $VdcUrn)
 # Main: connect, loop sources, switch NICs per source
 # ========================================================================
 
-$vcdCred = Get-Credential -Message "VCD System administrator credentials ($vcdServer)"
+$vcdCred = Get-CredentialSafe -Message "VCD System administrator credentials ($vcdServer)"
 $session = Connect-VcdApi -Server $vcdServer -Credential $vcdCred `
     -Org $vcdOrgLogin -ApiVersion $vcdApiVersion -SkipCertificateCheck:$vcdSkipCert
 Write-Host "Logged in to VCD: $vcdServer" -ForegroundColor Green

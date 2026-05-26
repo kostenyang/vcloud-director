@@ -45,6 +45,19 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+
+# === Terminal-safe credential prompt (works without CredUI / over SSH) ===
+function Get-CredentialSafe {
+    param([string] $Message)
+    Write-Host ''
+    Write-Host "[CRED] $Message" -ForegroundColor Cyan
+    $user = Read-Host '  Username'
+    if ([string]::IsNullOrEmpty($user)) { throw 'Username empty - aborting' }
+    $pw = Read-Host '  Password' -AsSecureString
+    if (-not $pw -or $pw.Length -eq 0) { throw 'Password empty - aborting' }
+    New-Object System.Management.Automation.PSCredential($user, $pw)
+}
+
 if (-not $ConfigPath) { $ConfigPath = Join-Path $PSScriptRoot 'config\configorg.json' }
 
 # config.local.json overrides
@@ -337,10 +350,10 @@ Import-Module VMware.VimAutomation.Vds -ErrorAction Stop
 
 # Credentials
 if ($SeparateCredentials) {
-    $vcCred  = Get-Credential -Message "vCenter credentials ($vcServer)"
-    $vcdCred = Get-Credential -Message "VCD System administrator credentials ($vcdServer)"
+    $vcCred  = Get-CredentialSafe -Message "vCenter credentials ($vcServer)"
+    $vcdCred = Get-CredentialSafe -Message "VCD System administrator credentials ($vcdServer)"
 } else {
-    $shared = Get-Credential -Message "Credentials for vCenter ($vcServer) AND VCD ($vcdServer) - one prompt, shared"
+    $shared = Get-CredentialSafe -Message "Credentials for vCenter ($vcServer) AND VCD ($vcdServer) - one prompt, shared"
     $vcCred = $shared; $vcdCred = $shared
 }
 

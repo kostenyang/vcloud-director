@@ -60,6 +60,19 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+
+# === Terminal-safe credential prompt (works without CredUI / over SSH) ===
+function Get-CredentialSafe {
+    param([string] $Message)
+    Write-Host ''
+    Write-Host "[CRED] $Message" -ForegroundColor Cyan
+    $user = Read-Host '  Username'
+    if ([string]::IsNullOrEmpty($user)) { throw 'Username empty - aborting' }
+    $pw = Read-Host '  Password' -AsSecureString
+    if (-not $pw -or $pw.Length -eq 0) { throw 'Password empty - aborting' }
+    New-Object System.Management.Automation.PSCredential($user, $pw)
+}
+
 if (-not $OrgVdcName) { $OrgVdcName = $OrgName }
 if (-not $OutFile)    { $OutFile    = Join-Path $PSScriptRoot 'config\configorg.json' }
 
@@ -181,7 +194,7 @@ function Get-VcdQuery {
 
 Write-Host "Build-SourcesFromOrg - tenant: $OrgName / VDC: $OrgVdcName" -ForegroundColor Cyan
 
-$vcdCred = Get-Credential -Message "VCD System administrator credentials ($VcdServer)"
+$vcdCred = Get-CredentialSafe -Message "VCD System administrator credentials ($VcdServer)"
 $session = Connect-VcdApi -Server $VcdServer -Credential $vcdCred `
     -Org $VcdLoginOrg -ApiVersion $VcdApiVersion `
     -SkipCertificateCheck:$VcdSkipCertCheck
