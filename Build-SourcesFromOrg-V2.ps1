@@ -64,21 +64,20 @@ $ErrorActionPreference = 'Stop'
 # === Terminal-safe credential prompt (works without CredUI / over SSH) ===
 
 # =========================================================================
-# OPTIONAL: HARDCODED CREDENTIALS (filled in here means no prompt)
+# OPTIONAL: HARDCODED VCD CREDENTIALS (this script only talks to VCD)
 # ----- SECURITY WARNING -----
 # If you put real values here, DO NOT commit this file to git!
-# These take precedence over the Read-Host prompt below.
 # Leave both blank to prompt interactively.
 # =========================================================================
-$DEFAULT_USERNAME = ''
-$DEFAULT_PASSWORD = ''
+$DEFAULT_VCD_USERNAME = ''
+$DEFAULT_VCD_PASSWORD = ''
 
-function Get-HardcodedOrPromptCred {
+function Get-VcdCred {
     param([string] $Message)
-    if ($DEFAULT_USERNAME -and $DEFAULT_PASSWORD) {
-        Write-Host "[CRED] Using hardcoded credentials from script header (user=$DEFAULT_USERNAME)" -ForegroundColor DarkYellow
-        $sec = ConvertTo-SecureString $DEFAULT_PASSWORD -AsPlainText -Force
-        return New-Object System.Management.Automation.PSCredential($DEFAULT_USERNAME, $sec)
+    if ($DEFAULT_VCD_USERNAME -and $DEFAULT_VCD_PASSWORD) {
+        Write-Host "[CRED-VCD] Using hardcoded VCD credentials (user=$DEFAULT_VCD_USERNAME)" -ForegroundColor DarkYellow
+        $sec = ConvertTo-SecureString $DEFAULT_VCD_PASSWORD -AsPlainText -Force
+        return New-Object System.Management.Automation.PSCredential($DEFAULT_VCD_USERNAME, $sec)
     }
     Get-CredentialSafe -Message $Message
 }
@@ -215,7 +214,7 @@ function Get-VcdQuery {
 
 Write-Host "Build-SourcesFromOrg - tenant: $OrgName / VDC: $OrgVdcName" -ForegroundColor Cyan
 
-$vcdCred = Get-HardcodedOrPromptCred -Message "VCD System administrator credentials ($VcdServer)"
+$vcdCred = Get-VcdCred -Message "VCD System administrator credentials ($VcdServer)"
 $session = Connect-VcdApi -Server $VcdServer -Credential $vcdCred `
     -Org $VcdLoginOrg -ApiVersion $VcdApiVersion `
     -SkipCertificateCheck:$VcdSkipCertCheck

@@ -49,21 +49,32 @@ $ErrorActionPreference = 'Stop'
 # === Terminal-safe credential prompt (works without CredUI / over SSH) ===
 
 # =========================================================================
-# OPTIONAL: HARDCODED CREDENTIALS (filled in here means no prompt)
+# OPTIONAL: HARDCODED CREDENTIALS (vCenter + VCD separate)
 # ----- SECURITY WARNING -----
 # If you put real values here, DO NOT commit this file to git!
-# These take precedence over the Read-Host prompt below.
-# Leave both blank to prompt interactively.
+# Leave any pair blank to prompt that side interactively.
 # =========================================================================
-$DEFAULT_USERNAME = ''
-$DEFAULT_PASSWORD = ''
+$DEFAULT_VC_USERNAME  = ''
+$DEFAULT_VC_PASSWORD  = ''
 
-function Get-HardcodedOrPromptCred {
+$DEFAULT_VCD_USERNAME = ''
+$DEFAULT_VCD_PASSWORD = ''
+
+function Get-VcCred {
     param([string] $Message)
-    if ($DEFAULT_USERNAME -and $DEFAULT_PASSWORD) {
-        Write-Host "[CRED] Using hardcoded credentials from script header (user=$DEFAULT_USERNAME)" -ForegroundColor DarkYellow
-        $sec = ConvertTo-SecureString $DEFAULT_PASSWORD -AsPlainText -Force
-        return New-Object System.Management.Automation.PSCredential($DEFAULT_USERNAME, $sec)
+    if ($DEFAULT_VC_USERNAME -and $DEFAULT_VC_PASSWORD) {
+        Write-Host "[CRED-VC] Using hardcoded vCenter credentials (user=$DEFAULT_VC_USERNAME)" -ForegroundColor DarkYellow
+        $sec = ConvertTo-SecureString $DEFAULT_VC_PASSWORD -AsPlainText -Force
+        return New-Object System.Management.Automation.PSCredential($DEFAULT_VC_USERNAME, $sec)
+    }
+    Get-CredentialSafe -Message $Message
+}
+function Get-VcdCred {
+    param([string] $Message)
+    if ($DEFAULT_VCD_USERNAME -and $DEFAULT_VCD_PASSWORD) {
+        Write-Host "[CRED-VCD] Using hardcoded VCD credentials (user=$DEFAULT_VCD_USERNAME)" -ForegroundColor DarkYellow
+        $sec = ConvertTo-SecureString $DEFAULT_VCD_PASSWORD -AsPlainText -Force
+        return New-Object System.Management.Automation.PSCredential($DEFAULT_VCD_USERNAME, $sec)
     }
     Get-CredentialSafe -Message $Message
 }
@@ -369,14 +380,9 @@ function Import-OneOrgVdcNetwork {
 
 Import-Module VMware.VimAutomation.Vds -ErrorAction Stop
 
-# Credentials
-if ($SeparateCredentials) {
-    $vcCred  = Get-HardcodedOrPromptCred -Message "vCenter credentials ($vcServer)"
-    $vcdCred = Get-HardcodedOrPromptCred -Message "VCD System administrator credentials ($vcdServer)"
-} else {
-    $shared = Get-HardcodedOrPromptCred -Message "Credentials for vCenter ($vcServer) AND VCD ($vcdServer) - one prompt, shared"
-    $vcCred = $shared; $vcdCred = $shared
-}
+# Credentials - vCenter and VCD are now ALWAYS separate (different accounts assumed)
+$vcCred  = Get-VcCred  -Message "vCenter credentials ($vcServer)"
+$vcdCred = Get-VcdCred -Message "VCD System administrator credentials ($vcdServer)"
 
 $vc = Connect-VIServer -Server $vcServer -Credential $vcCred -ErrorAction Stop
 Write-Host "Connected to vCenter: $($vc.Name)" -ForegroundColor Green
