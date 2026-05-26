@@ -176,8 +176,11 @@ try {
         else {
             # Cross-vDS - -ReferencePortgroup propagates the source vDS's
             # uplink port names into spec.uplinkTeamingPolicy.uplinkPortOrder,
-            # which the destination vDS rejects. Build the spec ourselves and
-            # blank the explicit ordering so the dest vDS applies its defaults.
+            # and the destination vDS rejects them (its uplinks have
+            # different names). REMAP each source uplink to the destination
+            # uplink at the same index, preserving the teaming semantics
+            # (active/standby roles, order) so VMs don't lose connectivity
+            # when the new portgroup takes over.
             $srcCfg = $src.ExtensionData.Config
             $spec   = New-Object VMware.Vim.DVPortgroupConfigSpec
             $spec.Name              = $destPg
@@ -188,8 +191,28 @@ try {
             $spec.DefaultPortConfig = $srcCfg.DefaultPortConfig
             if ($spec.DefaultPortConfig.UplinkTeamingPolicy -and
                 $spec.DefaultPortConfig.UplinkTeamingPolicy.UplinkPortOrder) {
-                $spec.DefaultPortConfig.UplinkTeamingPolicy.UplinkPortOrder.ActiveUplinkPort  = @()
-                $spec.DefaultPortConfig.UplinkTeamingPolicy.UplinkPortOrder.StandbyUplinkPort = @()
+                $srcUplinks = @($srcVds.ExtensionData.Config.UplinkPortPolicy.UplinkPortName)
+                $dstUplinks = @($destVds.ExtensionData.Config.UplinkPortPolicy.UplinkPortName)
+                $pairCount  = [Math]::Min($srcUplinks.Count, $dstUplinks.Count)
+                $uplinkMap  = @{}
+                for ($i = 0; $i -lt $pairCount; $i++) { $uplinkMap[$srcUplinks[$i]] = $dstUplinks[$i] }
+                Write-Host ("  Uplink mapping: {0}" -f (
+                    ($uplinkMap.GetEnumerator() | ForEach-Object { "'$($_.Key)'->'$($_.Value)'" }) -join ', '
+                )) -ForegroundColor DarkGray
+
+                $order = $spec.DefaultPortConfig.UplinkTeamingPolicy.UplinkPortOrder
+                $remappedActive  = New-Object System.Collections.Generic.List[string]
+                foreach ($u in @($order.ActiveUplinkPort)) {
+                    if ($uplinkMap.ContainsKey($u)) { $remappedActive.Add($uplinkMap[$u]) }
+                    else { Write-Warning "Source uplink '$u' (active) has no dest counterpart - src has $($srcUplinks.Count), dst has $($dstUplinks.Count); dropping" }
+                }
+                $remappedStandby = New-Object System.Collections.Generic.List[string]
+                foreach ($u in @($order.StandbyUplinkPort)) {
+                    if ($uplinkMap.ContainsKey($u)) { $remappedStandby.Add($uplinkMap[$u]) }
+                    else { Write-Warning "Source uplink '$u' (standby) has no dest counterpart - dropping" }
+                }
+                $order.ActiveUplinkPort  = $remappedActive.ToArray()
+                $order.StandbyUplinkPort = $remappedStandby.ToArray()
             }
             $taskMoRef = $destVds.ExtensionData.AddDVPortgroup_Task(@($spec))
             $deadline  = (Get-Date).AddSeconds(60)
