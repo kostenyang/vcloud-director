@@ -201,13 +201,15 @@ try {
                 )) -ForegroundColor DarkGray
 
                 $order = $spec.DefaultPortConfig.UplinkTeamingPolicy.UplinkPortOrder
+                # PowerCLI gives back .NET String[]; can be null when teaming
+                # is inherited or the list is empty. Filter to non-empty strings.
                 $remappedActive  = New-Object System.Collections.Generic.List[string]
-                foreach ($u in @($order.ActiveUplinkPort)) {
+                foreach ($u in @($order.ActiveUplinkPort | Where-Object { $_ })) {
                     if ($uplinkMap.ContainsKey($u)) { $remappedActive.Add($uplinkMap[$u]) }
                     else { Write-Warning "Source uplink '$u' (active) has no dest counterpart - src has $($srcUplinks.Count), dst has $($dstUplinks.Count); dropping" }
                 }
                 $remappedStandby = New-Object System.Collections.Generic.List[string]
-                foreach ($u in @($order.StandbyUplinkPort)) {
+                foreach ($u in @($order.StandbyUplinkPort | Where-Object { $_ })) {
                     if ($uplinkMap.ContainsKey($u)) { $remappedStandby.Add($uplinkMap[$u]) }
                     else { Write-Warning "Source uplink '$u' (standby) has no dest counterpart - dropping" }
                 }
