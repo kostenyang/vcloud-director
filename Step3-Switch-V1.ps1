@@ -1,25 +1,19 @@
 <#
 .SYNOPSIS
-  Phase 2 V1 (standalone) - Switch VM NICs from each source network to
-  its -new counterpart. Self-contained: does not call Invoke-MigrationBatch.ps1.
+  Phase 2 V1 (FULLY STANDALONE) - Switch VM NICs from each source network
+  to its -new counterpart. No dependency on lib/ or other step scripts.
 
 .DESCRIPTION
-  Independent batch driver for the per-tenant cut-over. Reads configorg.json,
-  prompts for credentials ONCE, and for each source:
-    1. Synthesises a per-source temp config (override portGroup.source).
-    2. Wipes prior network-handoff so step 3 will read this source's.
-    3. Calls step 2 v2 (Import-OrgVdcNetwork-AutoDetect.ps1) - it sees the
-       Org VDC Network already exists, reuses it, and writes a fresh
-       network-handoff for step 3.
-    4. Calls step 3 (Switch-TenantVmNics.ps1) which actually moves the
-       VM NICs from the source network to <source>-new.
-    5. Records per-source result.
+  Reads config\configorg.json (produced by Build-SourcesFromOrg.ps1).
+  For each entry in portGroup.sources[]:
+    1. Look up the source + dest Org VDC Networks in VCD (the dest must
+       already exist - run Step12-Import-V1.ps1 first).
+    2. Find every VM in the tenant whose NIC is on the source network.
+    3. PUT the modified networkConnectionSection to switch each NIC to
+       <source>-new, preserving IP / MAC / IP allocation.
+    4. Wait for the per-VM task and record success/failure.
 
-  Step 1 is NOT invoked - this script assumes Step12-Import-V1.ps1 already
-  built the portgroups.
-
-  Credential reuse: prompts Get-Credential once, overrides globally so
-  child step scripts use the cache, tears down in finally.
+  No step 1 / step 2 invocation. Phase 2 is pure cut-over.
 
   Result file: state\step3-batch-result.json
 
@@ -30,176 +24,292 @@
   Only process the first N sources.
 
 .PARAMETER WhatIf
-  Dry-run; passed through to step 3.
-
-.PARAMETER SeparateCredentials
-  Default ONE credential prompt shared by vCenter + VCD. Pass to prompt twice.
+  Dry-run.
 
 .EXAMPLE
   pwsh ./Step3-Switch-V1.ps1 -WhatIf
-  # See which VMs would move (no NIC changes)
-
-.EXAMPLE
-  pwsh ./Step3-Switch-V1.ps1 -Limit 1
-  # Cut over only the first source's VMs (toe in the water)
-
-.EXAMPLE
   pwsh ./Step3-Switch-V1.ps1
-  # Cut over every source's VMs to *-new
 #>
 [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
 param(
     [string] $ConfigPath,
-    [int]    $Limit = 0,
-    [switch] $SeparateCredentials
+    [int]    $Limit = 0
 )
 
 $ErrorActionPreference = 'Stop'
 
-$baseDir = $PSScriptRoot
-if (-not $ConfigPath) { $ConfigPath = Join-Path $baseDir 'config\configorg.json' }
-
-$step2Path  = Join-Path $baseDir '02-import-network\Import-OrgVdcNetwork-AutoDetect.ps1'
-$step3Path  = Join-Path $baseDir '03-switch-nics\Switch-TenantVmNics.ps1'
-$pgHandoff  = Join-Path $baseDir 'state\portgroup-handoff.json'
-$netHandoff = Join-Path $baseDir 'state\network-handoff.json'
-$resultPath = Join-Path $baseDir 'state\step3-batch-result.json'
-
-# config.local.json overrides
+if (-not $ConfigPath) { $ConfigPath = Join-Path $PSScriptRoot 'config\configorg.json' }
 $localCfg = Join-Path (Split-Path $ConfigPath) 'config.local.json'
 if (Test-Path $localCfg) { $ConfigPath = $localCfg }
-Write-Host "Config: $ConfigPath" -ForegroundColor Cyan
 
 $cfg = Get-Content $ConfigPath -Raw | ConvertFrom-Json
 if (-not $cfg.portGroup.sources -or @($cfg.portGroup.sources).Count -eq 0) {
-    throw "config.portGroup.sources[] is empty. Run Build-SourcesFromOrg.ps1 first."
+    throw "config.portGroup.sources[] is empty."
 }
 $sources = @($cfg.portGroup.sources)
 if ($Limit -gt 0) { $sources = $sources | Select-Object -First $Limit }
 
-# --- Single credential prompt + global override ---------------------------
-Write-Host "Credentials will be cached for this batch run." -ForegroundColor Yellow
-if ($SeparateCredentials) {
-    $script:vcCred  = Microsoft.PowerShell.Security\Get-Credential -Message "vCenter credentials ($($cfg.vCenter.server))"
-    $script:vcdCred = Microsoft.PowerShell.Security\Get-Credential -Message "VCD System administrator credentials ($($cfg.vcd.server))"
-}
-else {
-    $shared = Microsoft.PowerShell.Security\Get-Credential -Message "Credentials for vCenter ($($cfg.vCenter.server)) AND VCD ($($cfg.vcd.server)) - one prompt, used for both."
-    $script:vcCred  = $shared
-    $script:vcdCred = $shared
-}
-function global:Get-Credential {
-    param(
-        [Parameter(Position = 0)] $UserName,
-        [string] $Message
-    )
-    if ($Message -match 'VCD' -or $Message -match 'vcd') { return $script:vcdCred }
-    return $script:vcCred
-}
+$suffix         = $cfg.portGroup.destinationSuffix
+$vcdServer      = $cfg.vcd.server
+$vcdApiVersion  = $cfg.vcd.apiVersion
+$vcdOrgLogin    = $cfg.vcd.org
+$vcdSkipCert    = [bool]$cfg.vcd.skipCertificateCheck
+$orgName        = $cfg.tenant.orgName
+$vdcName        = $cfg.tenant.orgVdcName
+$OrgVdcUrn      = if ($cfg.tenant.PSObject.Properties.Name -contains 'orgVdcId') { $cfg.tenant.orgVdcId } else { $null }
+$resultPath     = Join-Path $PSScriptRoot 'state\step3-batch-result.json'
 
-Write-Host ""
 Write-Host "=== Phase 2 V1 (standalone): switch VM NICs to *-new ===" -ForegroundColor Magenta
+Write-Host "  Config : $ConfigPath"
 Write-Host "  Sources: $($sources.Count)"
-Write-Host "  NIC switch: ON - VMs will move from source -> *-new" -ForegroundColor Yellow
+Write-Host "  Tenant : $orgName / $vdcName"
+Write-Host "  Action : VMs will move from source -> source$suffix" -ForegroundColor Yellow
 Write-Host ""
 
-try {
+# ========================================================================
+# Embedded VCD REST helpers
+# ========================================================================
+function Connect-VcdApi {
+    param(
+        [Parameter(Mandatory)] [string] $Server,
+        [Parameter(Mandatory)] [pscredential] $Credential,
+        [string] $Org = 'System', [string] $ApiVersion = '40.0',
+        [switch] $SkipCertificateCheck
+    )
+    $base = "https://$Server"
+    $sessionUri = if ($Org -eq 'System') { "$base/cloudapi/1.0.0/sessions/provider" } else { "$base/cloudapi/1.0.0/sessions" }
+    $user = $Credential.UserName
+    if ($user -notmatch '@') { $user = "$user@$Org" }
+    $pair = "${user}:$($Credential.GetNetworkCredential().Password)"
+    $basic = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($pair))
+    $headers = @{ Authorization = "Basic $basic"; Accept = "application/json;version=$ApiVersion" }
+    $irmArgs = @{ Uri = $sessionUri; Method = 'Post'; Headers = $headers
+        ResponseHeadersVariable = 'respHeaders'; StatusCodeVariable = 'status' }
+    if ($SkipCertificateCheck) { $irmArgs.SkipCertificateCheck = $true }
+    try { $null = Invoke-RestMethod @irmArgs }
+    catch {
+        $code = $_.Exception.Response.StatusCode.value__
+        if ($code -eq 401) { throw "VCD login 401 (user: $user)" }
+        throw
+    }
+    $token = $respHeaders['X-VMWARE-VCLOUD-ACCESS-TOKEN']
+    if (-not $token) { throw "Login failed: no access token (HTTP $status)" }
+    [pscustomobject]@{
+        BaseUrl = $base; Token = ($token -join ''); ApiVersion = $ApiVersion
+        SkipCertificateCheck = [bool]$SkipCertificateCheck
+    }
+}
+function Invoke-VcdOpenApi {
+    param([Parameter(Mandatory)] $Session, [Parameter(Mandatory)] [string] $Path,
+        [string] $Method = 'Get', $Body)
+    $headers = @{ Authorization = "Bearer $($Session.Token)"; Accept = "application/json;version=$($Session.ApiVersion)" }
+    $irmArgs = @{ Uri = "$($Session.BaseUrl)$Path"; Method = $Method; Headers = $headers }
+    if ($PSBoundParameters.ContainsKey('Body') -and $null -ne $Body) {
+        $irmArgs.Body = ($Body | ConvertTo-Json -Depth 20)
+        $irmArgs.ContentType = "application/json;version=$($Session.ApiVersion)"
+    }
+    if ($Session.SkipCertificateCheck) { $irmArgs.SkipCertificateCheck = $true }
+    Invoke-RestMethod @irmArgs
+}
+function Invoke-VcdLegacyApi {
+    param([Parameter(Mandatory)] $Session, [Parameter(Mandatory)] [string] $Uri,
+        [string] $Method = 'Get', [xml] $Body, [string] $ContentType)
+    if ($Uri -notmatch '^https?://') { $Uri = "$($Session.BaseUrl)$Uri" }
+    $headers = @{ Authorization = "Bearer $($Session.Token)"; Accept = "application/*+xml;version=$($Session.ApiVersion)" }
+    $irmArgs = @{ Uri = $Uri; Method = $Method; Headers = $headers }
+    if ($Body) { $irmArgs.Body = $Body.OuterXml; $irmArgs.ContentType = $ContentType }
+    if ($Session.SkipCertificateCheck) { $irmArgs.SkipCertificateCheck = $true }
+    Invoke-RestMethod @irmArgs
+}
+function Get-VcdQuery {
+    param([Parameter(Mandatory)] $Session, [Parameter(Mandatory)] [string] $Type,
+        [string] $Filter, [string] $Format = 'records', [int] $PageSize = 128)
     $results = New-Object System.Collections.Generic.List[object]
-    $i = 0
-    foreach ($src in $sources) {
-        $i++
-        $started    = Get-Date
-        $sourceName = $src.name
-        $destName   = $sourceName + $cfg.portGroup.destinationSuffix
-        Write-Host ("[{0}/{1}] {2,-30} -> {3}" -f $i, $sources.Count, $sourceName, $destName) -ForegroundColor Cyan
-
-        # Synthesise per-source temp config
-        $tmp = $cfg | ConvertTo-Json -Depth 20 | ConvertFrom-Json
-        $tmp.portGroup.source = $sourceName
-        $tmpPath = Join-Path $env:TEMP ("cfg-step3-{0}-{1}.json" -f $PID, $sourceName)
-        $tmp | ConvertTo-Json -Depth 20 | Set-Content $tmpPath -Encoding UTF8
-
-        # Wipe stale network-handoff so step 2 reuse writes a fresh one for this source.
-        # Leave portgroup-handoff alone (step 2 reads it but if step 1 didn't run,
-        # step 2 v2 also handles via VCD lookup of source network).
-        Remove-Item $netHandoff -ErrorAction SilentlyContinue
-
-        $status  = 'ok'
-        $errMsg  = $null
-        $steps   = [ordered]@{}
-        $elapsed = 0
-        try {
-            # Re-invoke step 2 v2 just to regenerate network-handoff for THIS source.
-            # It detects existing dest network and reuses (no creation).
-            Write-Host "  -> step2 reuse (refresh handoff)..." -ForegroundColor DarkGray
-            & $step2Path -ConfigPath $tmpPath
-            $steps['step2'] = (Test-Path $netHandoff) ? 'ok' : 'no-handoff'
-            if ($steps['step2'] -eq 'no-handoff') {
-                throw "step2 did not produce network-handoff - was Phase 1 done for $sourceName?"
-            }
-
-            Write-Host "  -> step3 (switch NICs)..." -ForegroundColor DarkGray
-            if ($PSCmdlet.ShouldProcess($sourceName, "step3 - switch VM NICs to $destName")) {
-                & $step3Path -ConfigPath $tmpPath
-                $steps['step3'] = 'ok'
-            }
-            else {
-                $steps['step3'] = 'whatif'
-            }
-
-            $elapsed = ((Get-Date) - $started).TotalSeconds
-            Write-Host ("  [OK] {0:F1}s" -f $elapsed) -ForegroundColor Green
+    $page = 1
+    do {
+        $q = "/api/query?type=$Type&format=$Format&pageSize=$PageSize&page=$page"
+        if ($Filter) { $q += "&filter=$([uri]::EscapeDataString($Filter))" }
+        $resp = Invoke-VcdLegacyApi -Session $Session -Uri $q
+        foreach ($child in $resp.QueryResultRecords.ChildNodes) {
+            if ($child.NodeType -ne 'Element') { continue }
+            $name = $child.LocalName; if (-not $name) { $name = $child.Name }
+            if ($name -eq 'Link') { continue }
+            if ($name -notmatch 'Record$') { continue }
+            $results.Add($child)
         }
-        catch {
-            $errMsg = $_.Exception.Message
-            if ($status -eq 'ok') { $status = 'failed' }
-            $elapsed = ((Get-Date) - $started).TotalSeconds
-            Write-Warning ("  [{0}] {1:F1}s : {2}" -f $status.ToUpper(), $elapsed, $errMsg)
+        $hasNext = $resp.QueryResultRecords.Link.rel -contains 'nextPage'
+        $page++
+    } while ($hasNext)
+    $results
+}
+function Wait-VcdTask {
+    param([Parameter(Mandatory)] $Session, [Parameter(Mandatory)] [string] $TaskHref, [int] $TimeoutSec = 600)
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    do {
+        Start-Sleep -Seconds 3
+        $task = Invoke-VcdLegacyApi -Session $Session -Uri $TaskHref
+        $statusVal = $task.Task.status
+        if ($statusVal -eq 'success') { return $true }
+        if ($statusVal -in @('error','aborted','canceled')) {
+            throw "VCD task failed ($statusVal): $($task.Task.Error.message)"
         }
-        finally {
-            Remove-Item $tmpPath -ErrorAction SilentlyContinue
-        }
+    } while ($sw.Elapsed.TotalSeconds -lt $TimeoutSec)
+    throw "Timed out waiting for VCD task: $TaskHref"
+}
+function Find-VdcNetworkOne { param($Resp, $VdcUrn)
+    $Resp.values | Where-Object {
+        ($_.ownerRef -and $_.ownerRef.id -eq $VdcUrn) -or
+        ($_.orgVdc   -and $_.orgVdc.id   -eq $VdcUrn)
+    } | Select-Object -First 1
+}
 
-        $results.Add([ordered]@{
-            source      = $sourceName
-            dest        = $destName
-            status      = $status
-            steps       = $steps
-            durationSec = [math]::Round($elapsed, 2)
-            error       = $errMsg
-        })
-    }
+# ========================================================================
+# Main: connect, loop sources, switch NICs per source
+# ========================================================================
 
-    # Write summary
-    $summary = [ordered]@{
-        runAt           = (Get-Date).ToString('o')
-        createdBy       = 'Step3-Switch-V1.ps1'
-        config          = $ConfigPath
-        totalCandidates = $sources.Count
-        processed       = $results.Count
-        ok              = ($results | Where-Object { $_.status -eq 'ok' }).Count
-        failed          = ($results | Where-Object { $_.status -eq 'failed' }).Count
-        results         = $results
-    }
-    $outDir = Split-Path $resultPath
-    if (-not (Test-Path $outDir)) { New-Item -ItemType Directory -Path $outDir -Force | Out-Null }
-    $summary | ConvertTo-Json -Depth 12 | Set-Content $resultPath -Encoding UTF8
+$vcdCred = Get-Credential -Message "VCD System administrator credentials ($vcdServer)"
+$session = Connect-VcdApi -Server $vcdServer -Credential $vcdCred `
+    -Org $vcdOrgLogin -ApiVersion $vcdApiVersion -SkipCertificateCheck:$vcdSkipCert
+Write-Host "Logged in to VCD: $vcdServer" -ForegroundColor Green
 
+# Resolve Org URN and href, Org VDC URN
+$orgList = Invoke-VcdLegacyApi -Session $session -Uri '/api/org'
+$orgMatch = @($orgList.OrgList.Org | Where-Object { $_.name -eq $orgName })
+if (-not $orgMatch) { throw "Org not found: $orgName" }
+if ($orgMatch.Count -gt 1) { throw "Org name '$orgName' is ambiguous" }
+$org     = $orgMatch[0]
+$orgHref = $org.href
+Write-Host "Org href: $orgHref"
+
+if (-not $OrgVdcUrn) {
+    $vdcRec = @(Get-VcdQuery -Session $session -Type 'adminOrgVdc' -Filter "name==$vdcName;orgName==$orgName")
+    $vdcRec = @($vdcRec | Sort-Object -Property href -Unique)
+    if ($vdcRec.Count -ne 1) { throw "Org VDC '$vdcName' resolution failed ($($vdcRec.Count) matches)" }
+    $vdcUuid = ($vdcRec[0].href -split '/')[-1]
+    $OrgVdcUrn = "urn:vcloud:vdc:$vdcUuid"
+}
+Write-Host "Org VDC URN: $OrgVdcUrn"
+
+$results = New-Object System.Collections.Generic.List[object]
+$i = 0
+foreach ($src in $sources) {
+    $i++
+    $started    = Get-Date
+    $sourceName = $src.name
+    $destName   = $sourceName + $suffix
     Write-Host ""
-    Write-Host "=== PHASE 2 DONE ===" -ForegroundColor Green
-    Write-Host ("  OK     : {0}" -f $summary.ok)
-    Write-Host ("  Failed : {0}" -f $summary.failed) -ForegroundColor $(if ($summary.failed) { 'Red' } else { 'Green' })
-    Write-Host ("  Result : {0}" -f $resultPath)
-    if ($summary.failed -gt 0) {
-        Write-Host ""
-        Write-Host "Failed sources:" -ForegroundColor Red
-        $results | Where-Object { $_.status -eq 'failed' } | ForEach-Object {
-            "  - {0}: {1}" -f $_.source, $_.error
+    Write-Host ("[{0}/{1}] {2,-30} -> {3}" -f $i, $sources.Count, $sourceName, $destName) -ForegroundColor Cyan
+
+    $status='ok'; $errMsg=$null; $elapsed=0
+    $vmReport = New-Object System.Collections.Generic.List[object]
+    try {
+        if (-not $PSCmdlet.ShouldProcess($sourceName, "Switch VM NICs to $destName")) {
+            $results.Add([ordered]@{ source=$sourceName; dest=$destName; status='whatif'; vmCount=0; vmResults=@(); durationSec=0; error=$null })
+            continue
         }
+
+        # Sanity: dest network must exist
+        $destResp = Invoke-VcdOpenApi -Session $session -Path "/cloudapi/1.0.0/orgVdcNetworks?filter=name==$destName"
+        $destNet  = Find-VdcNetworkOne -Resp $destResp -VdcUrn $OrgVdcUrn
+        if (-not $destNet) { throw "Destination Org VDC Network '$destName' not found in VDC. Run Step12-Import-V1.ps1 first." }
+
+        # Find VMs in the tenant on the source network
+        Write-Host "  Scanning Org for VMs on '$sourceName'..." -ForegroundColor DarkGray
+        $vmRecords = Get-VcdQuery -Session $session -Type 'adminVM' -Filter "isVAppTemplate==false;org==$orgHref"
+        $targets = New-Object System.Collections.Generic.List[object]
+        foreach ($vm in $vmRecords) {
+            $ncsUri = "$($vm.href)/networkConnectionSection/"
+            try { $ncs = Invoke-VcdLegacyApi -Session $session -Uri $ncsUri }
+            catch { Write-Warning "  read NIC failed: $($vm.name) - $($_.Exception.Message)"; continue }
+            $hit = $ncs.NetworkConnectionSection.NetworkConnection |
+                Where-Object { $_.network -eq $sourceName }
+            if ($hit) {
+                $targets.Add([pscustomobject]@{
+                    Name       = $vm.name
+                    Href       = $vm.href
+                    NicIndexes = ($hit.NetworkConnectionIndex -join ',')
+                    Section    = $ncs
+                })
+            }
+        }
+
+        if ($targets.Count -eq 0) {
+            Write-Host "  No VMs attached to '$sourceName'; nothing to switch." -ForegroundColor Yellow
+            $status = 'ok'
+            $elapsed = ((Get-Date) - $started).TotalSeconds
+            $results.Add([ordered]@{
+                source=$sourceName; dest=$destName; status=$status; vmCount=0; vmResults=@(); durationSec=[math]::Round($elapsed,2); error=$null
+            })
+            continue
+        }
+
+        Write-Host "  Found $($targets.Count) VM(s) to reconnect:" -ForegroundColor Yellow
+        $targets | ForEach-Object { "    {0}  (nic={1})" -f $_.Name, $_.NicIndexes }
+
+        # Reconnect each VM
+        foreach ($t in $targets) {
+            try {
+                $section = $t.Section
+                foreach ($nc in $section.NetworkConnectionSection.NetworkConnection) {
+                    if ($nc.network -eq $sourceName) { $nc.network = $destName }
+                }
+                $putUri = $section.NetworkConnectionSection.href
+                $task = Invoke-VcdLegacyApi -Session $session -Uri $putUri -Method Put `
+                    -Body ([xml]$section.OuterXml) `
+                    -ContentType "application/vnd.vmware.vcloud.networkConnectionSection+xml;version=$($session.ApiVersion)"
+                Wait-VcdTask -Session $session -TaskHref $task.Task.href | Out-Null
+                Write-Host "    OK   $($t.Name)" -ForegroundColor Green
+                $vmReport.Add([ordered]@{ vm=$t.Name; nicIndexes=$t.NicIndexes; result='Success'; error=$null })
+            }
+            catch {
+                Write-Warning "    FAIL $($t.Name): $($_.Exception.Message)"
+                $vmReport.Add([ordered]@{ vm=$t.Name; nicIndexes=$t.NicIndexes; result='Failed'; error=$_.Exception.Message })
+            }
+        }
+
+        $elapsed = ((Get-Date) - $started).TotalSeconds
+        $okCnt   = ($vmReport | Where-Object { $_.result -eq 'Success' }).Count
+        $failCnt = ($vmReport | Where-Object { $_.result -eq 'Failed' }).Count
+        if ($failCnt -gt 0) { $status = 'partial' }
+        Write-Host ("  [{0}] {1:F1}s   {2} VM ok, {3} VM failed" -f $status.ToUpper(), $elapsed, $okCnt, $failCnt) -ForegroundColor $(if ($failCnt -gt 0) { 'DarkYellow' } else { 'Green' })
     }
-}
-finally {
-    if (Test-Path Function:\global:Get-Credential) {
-        Remove-Item Function:\global:Get-Credential -ErrorAction SilentlyContinue
+    catch {
+        $errMsg = $_.Exception.Message
+        $status = 'failed'
+        $elapsed = ((Get-Date) - $started).TotalSeconds
+        Write-Warning ("  [{0}] {1:F1}s : {2}" -f $status.ToUpper(), $elapsed, $errMsg)
     }
+    $results.Add([ordered]@{
+        source=$sourceName; dest=$destName; status=$status
+        vmCount=$vmReport.Count
+        vmResults=$vmReport
+        durationSec=[math]::Round($elapsed,2)
+        error=$errMsg
+    })
 }
+
+# Summary
+$summary = [ordered]@{
+    runAt          = (Get-Date).ToString('o')
+    createdBy      = 'Step3-Switch-V1.ps1 (standalone)'
+    config         = $ConfigPath
+    totalSources   = $sources.Count
+    processed      = $results.Count
+    ok             = ($results | Where-Object { $_.status -eq 'ok' }).Count
+    partial        = ($results | Where-Object { $_.status -eq 'partial' }).Count
+    failed         = ($results | Where-Object { $_.status -eq 'failed' }).Count
+    whatif         = ($results | Where-Object { $_.status -eq 'whatif' }).Count
+    totalVmSwitched= ($results | ForEach-Object { ($_.vmResults | Where-Object { $_.result -eq 'Success' }).Count } | Measure-Object -Sum).Sum
+    results        = $results
+}
+$outDir = Split-Path $resultPath
+if (-not (Test-Path $outDir)) { New-Item -ItemType Directory -Path $outDir -Force | Out-Null }
+$summary | ConvertTo-Json -Depth 12 | Set-Content $resultPath -Encoding UTF8
+
+Write-Host ""
+Write-Host "=== PHASE 2 DONE ===" -ForegroundColor Green
+Write-Host ("  Sources OK       : {0}" -f $summary.ok)
+Write-Host ("  Sources partial  : {0}" -f $summary.partial) -ForegroundColor $(if ($summary.partial) { 'Yellow' } else { 'Green' })
+Write-Host ("  Sources failed   : {0}" -f $summary.failed)  -ForegroundColor $(if ($summary.failed)  { 'Red' }    else { 'Green' })
+Write-Host ("  Total VM moved   : {0}" -f $summary.totalVmSwitched)
+Write-Host ("  Result file      : {0}" -f $resultPath)
