@@ -46,6 +46,15 @@
   VCD (assumes the same user/password works for both - e.g. an SSO admin).
   Pass -SeparateCredentials to prompt twice, once per system.
 
+.PARAMETER Interactive
+  Per-source confirmation. Before running each source the script prints its
+  details (name, VLAN, needs[], dest portgroup name preview) and asks:
+    [Y]es do it / [N]o skip this one / [A]ll remaining without asking /
+    [Q]uit batch
+  Y is the default (empty input = Y). N marks the source as 'user-skipped'
+  and continues; Q breaks the loop and writes batch-result.json with
+  partial results.
+
 .EXAMPLE
   pwsh ./Invoke-MigrationBatch.ps1 -WhatIf -Limit 3
   # Dry-run, only first 3 pending sources
@@ -61,7 +70,8 @@ param(
     [switch] $CheckVms,
     [string] $OrgVdcUrn,
     [int]    $Limit = 0,
-    [switch] $SeparateCredentials
+    [switch] $SeparateCredentials,
+    [switch] $Interactive
 )
 
 $ErrorActionPreference = 'Stop'
@@ -71,7 +81,7 @@ $baseDir = $PSScriptRoot
 if (-not $ConfigPath) { $ConfigPath = Join-Path $baseDir 'config\config-batch.json' }
 $todoPath      = Join-Path $baseDir 'state\todo.json'
 $resultPath    = Join-Path $baseDir 'state\batch-result.json'
-$step1Path     = Join-Path $baseDir '01-create-portgroup\New-DistributedPortGroup-v1.1.ps1'
+$step1Path     = Join-Path $baseDir '01-create-portgroup\New-DistributedPortGroup-v1.2.ps1'
 $step2Path     = Join-Path $baseDir '02-import-network\Import-OrgVdcNetwork-AutoDetect.ps1'
 $step3Path     = Join-Path $baseDir '03-switch-nics\Switch-TenantVmNics.ps1'
 $comparePath   = Join-Path $baseDir '00-build-config\Compare-MigrationState.ps1'
@@ -142,13 +152,39 @@ try {
     Write-Host ""
 
     # --- 2. Main loop ---------------------------------------------------
-    $results = New-Object System.Collections.Generic.List[object]
+    $results    = New-Object System.Collections.Generic.List[object]
+    $autoYes    = $false
+    $userAbort  = $false
     $i = 0
     foreach ($src in $pending) {
+        if ($userAbort) { break }
         $i++
         $startedAt = Get-Date
         $needsStr  = ($src.needs -join ',')
+        $destPg    = $src.name + $cfg.portGroup.destinationSuffix
         Write-Host ("[{0}/{1}] {2,-30} needs=[{3}]" -f $i, $pending.Count, $src.name, $needsStr) -ForegroundColor Cyan
+
+        # Interactive per-source confirmation (-Interactive switch)
+        if ($Interactive -and -not $autoYes) {
+            Write-Host ("  Source PG       : {0}" -f $src.name)
+            Write-Host ("  VLAN            : {0}" -f $src.vlan)
+            Write-Host ("  Source vDS      : {0}" -f $cfg.vCenter.sourceVdsName)
+            Write-Host ("  Destination vDS : {0}" -f $cfg.vCenter.destinationVdsName)
+            Write-Host ("  Will create     : {0}" -f $destPg)
+            $choice = (Read-Host "  Proceed?  [Y]es / [N]o skip / [A]ll remaining / [Q]uit  (default Y)").Trim().ToLower()
+            switch -Regex ($choice) {
+                '^q'    { Write-Host "  User quit batch." -ForegroundColor Yellow; $userAbort = $true; continue }
+                '^a'    { Write-Host "  Auto-yes for remaining $($pending.Count - $i + 1) source(s)." -ForegroundColor Yellow; $autoYes = $true }
+                '^n|^s' {
+                    Write-Host "  User skipped." -ForegroundColor Yellow
+                    $results.Add([ordered]@{
+                        source = $src.name; needs = $src.needs; status = 'user-skipped'
+                    })
+                    continue
+                }
+                default { } # empty or 'y*' -> proceed
+            }
+        }
 
         if (-not $PSCmdlet.ShouldProcess($src.name, "Run [$needsStr]")) {
             $results.Add([ordered]@{
