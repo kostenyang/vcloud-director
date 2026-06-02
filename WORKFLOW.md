@@ -1,19 +1,18 @@
 # 完整操作流程
 
-V3 standalone 三隻為主(repo 根目錄),客戶下載這三個檔即可跑。
-參數細節跟元件設計請看 [`README.md`](README.md);密碼處理請看 [`CREDENTIALS.md`](CREDENTIALS.md)。
+兩種 VM 接網路情境(直連 OVDC vs 走 vApp Network)分開講。
+參數細節 / 元件設計請看 [`README.md`](README.md);密碼處理請看 [`CREDENTIALS.md`](CREDENTIALS.md)。
 
 ---
 
-## 三隻主要 script(repo 根目錄)
+## 兩種情境
 
-| 順序 | 檔案 | 作用 |
+| 情境 | VM NIC 怎麼接的 | 用哪幾隻 |
 | --- | --- | --- |
-| 1 | [`Build-SourcesFromOrg-V3.ps1`](Build-SourcesFromOrg-V3.ps1) | 查 VCD 目標 tenant,把 DIRECT 網路清單寫進 `config\configorg.json` |
-| 2 | [`Step12-Import-V3.ps1`](Step12-Import-V3.ps1) | **Phase 1** — 為每個 source 建 dest portgroup + import 成 Org VDC Network(不切 NIC) |
-| 3 | [`Step3-Switch-V3.ps1`](Step3-Switch-V3.ps1) | **Phase 2** — 切 VM NIC 從 source network 到 `<source>-new` |
+| **A. 直連 OVDC** | VM NIC 直接接 Org VDC Network(VCD UI → vApp → NIC 顯示 `ds-10-191-043`) | Build → Step12 → **Step3-V3** |
+| **B. 走 vApp Network** | VM NIC 接 vApp 內部的 vApp Network,vApp Network 再 parent 到 OVDC | Build → Step12 → **Step2b → Step2c**(+ Step3-V3 處理混合情境的直連 VM) |
 
-V3 = V2 + polling 加速(4s → 2s)。V2 / V1 留著當 baseline 不會消失。
+不確定的話到 VCD UI → tenant org → vApp → Networks 看就知道。**也可能混合**(同 tenant 一部分 VM 直連、一部分走 vApp net)。
 
 ---
 
@@ -28,11 +27,11 @@ Install-Module VMware.PowerCLI -Scope CurrentUser
 Set-PowerCLIConfiguration -InvalidCertificateAction Ignore -Confirm:$false
 ```
 
-預設值已 baked 為 chunghwa customer 環境(`tpe-vcha022.vs.local` / `ecloud.cht.com.tw` / `vDS-TPE-Resource` → `vDS-TPE-vcd` / API 39.1)。其他環境用 `-VcdServer` / `-VCenterServer` / 等等覆寫。
+預設值已 baked 為 chunghwa customer 環境(`tpe-vcha022.vs.local` / `ecloud.cht.com.tw` / `vDS-TPE-Resource` → `vDS-TPE-vcd` / API 39.1)。
 
 ---
 
-## 每個 tenant 三步流程
+## 共用前 2 步(不管 A / B 都要做)
 
 ### Step 1:產 configorg.json
 
@@ -40,183 +39,212 @@ Set-PowerCLIConfiguration -InvalidCertificateAction Ignore -Confirm:$false
 pwsh .\Build-SourcesFromOrg-V3.ps1 -OrgName 'viqa.qa'
 ```
 
-它會:
-1. Prompt VCD 帳密(provider admin,`vcd.org = System`)
-2. Resolve `viqa.qa` 的 Org VDC URN
-3. Query 該 VDC 內所有 DIRECT 網路(已是 `-new` 結尾的會自動跳過)
-4. 寫 [`config\configorg.json`](config/configorg.json),`portGroup.sources[]` 填入清單
+- 連 VCD,查目標 tenant 內所有 DIRECT OVDC 網路
+- 寫 `config\configorg.json` 帶 sources[]
 
-**預期輸出**:
-```
-Sources emitted: 4
-Preview:
-  - ds-10-191-043  parent=ext-ds-10-191-043
-  - ds-10-191-044  parent=ext-ds-10-191-044
-  - ds-10-191-045  parent=ext-ds-10-191-045
-  - ds-10-191-096  parent=ext-ds-10-191-096
-```
-
-要 review / 刪某筆就直接編輯:
-```powershell
-notepad .\config\configorg.json
-```
-
-### Step 2:Phase 1 — 建 portgroup + import 進 org(不切 NIC)
+### Step 2:Phase 1 — 建 -new OVDC(VM 不動)
 
 ```powershell
-# 先 dry-run 看會做什麼(完全不會建)
-pwsh .\Step12-Import-V3.ps1 -WhatIf
-
-# 真跑
-pwsh .\Step12-Import-V3.ps1
+pwsh .\Step12-Import-V3.ps1 -WhatIf      # dry-run
+pwsh .\Step12-Import-V3.ps1              # 真跑
 ```
 
-**VM 完全不會被動到。VM 還在原本的 source 網路上跑**。
+對每個 source 做三件事(VM 完全不動):
+1. vCenter 在 `vDS-TPE-Resource` clone portgroup 到 `vDS-TPE-vcd` 變 `*-new`(uplink 自動 remap)
+2. VCD provider 建 `ext-*-new` external network
+3. VCD tenant 建 `*-new` DIRECT Org VDC Network
 
-對每個 source(以 ds-10-191-043 為例):
-1. step 1:vCenter 在 `vDS-TPE-Resource` 找 `ds-10-191-043` portgroup → clone 到 `vDS-TPE-vcd` 變 `ds-10-191-043-new`(**cross-vDS 自動 remap uplink 名稱,保留 teaming**)
-2. step 2:VCD 看 source `ds-10-191-043` (DIRECT) → 讀 `ext-ds-10-191-043` 拿 subnet + vCenter URN → 建 `ext-ds-10-191-043-new` external network → 建 `ds-10-191-043-new` DIRECT Org VDC Network
+完成後到 VCD UI 確認 `*-new` 三個物件都在。
 
-Console:
-```
-[1/4] ds-10-191-043  ->  ds-10-191-043-new
-  -> step1 (portgroup)...
-     portgroup: ds-10-191-043-new  moref=dvportgroup-880273  vlan=2843
-  -> step2 (org vdc network)...
-  [OK] 12.3s   srcType=DIRECT destNet=DIRECT
-```
+---
 
-### Step 3:VCD UI 驗證
+## 情境 A:直連 OVDC 流程
 
-切之前必看,確認 phase 1 結果正常:
-
-| 在哪 | 看什麼 |
-| --- | --- |
-| tenant viqa.qa → Networks | 多 4 個 `*-new` DIRECT 網路,VM count = 0 |
-| Provider → External Networks | 多 4 個 `ext-*-new` |
-| vCenter vDS-TPE-vcd | 多 4 個 `ds-10-191-*-new` portgroup,VLAN 跟 source 一致 |
-
-不對勁就馬上 rollback(見最下面)。
-
-### Step 4:Phase 2 — 切 VM NIC(真實 migration)
+### Step 3-A:切 VM NIC(直接從 OVDC 名換到 OVDC 名)
 
 ```powershell
-# 先 dry-run 看會切哪些 VM
-pwsh .\Step3-Switch-V3.ps1 -WhatIf
-
-# 真切
-pwsh .\Step3-Switch-V3.ps1
+pwsh .\Step3-Switch-V3.ps1 -WhatIf       # dry-run
+pwsh .\Step3-Switch-V3.ps1               # 真切
 ```
 
 對每個 source:
-1. 找所有接在 source network 的 VM
-2. 改每張匹配的 NIC `.network = <dest>`,PUT 回 VCD
-3. 等 task success,記 result
+- 找 NIC.network == source OVDC name 的 VM
+- 改成 dest OVDC name,PUT
+- VM 不用關機,< 1 秒 blip
 
-**VM 不用關機。NIC reconfigure 是 vCenter 熱操作,VM 持續跑**:
-- IP / MAC / IP 配置模式都**完整保留**
-- 通常 < 1 秒內完成(可能掉幾個封包,TCP 自己 retransmit)
-- 前提:source 跟 dest 的 underlying vDS uplinks 接同一條 physical 網路(同 VLAN 跨 vDS 的標準情境)
+---
 
-### Step 5:看結果
+## 情境 B:走 vApp Network 流程(分兩動)
+
+### Step 2b:對 vApp 加新 vApp Network(VM 不動)
 
 ```powershell
-# Phase 1
+pwsh .\Step2b-AddVAppNetwork-V1.ps1 -WhatIf
+pwsh .\Step2b-AddVAppNetwork-V1.ps1
+```
+
+對每個 source:
+- 找有 vApp Network parent = source OVDC 的 vApp
+- **APPEND** 一個新的 vApp Network 進去:
+  - networkName = `<source>-new`(同 dest OVDC 名)
+  - ParentNetwork = `<source>-new` OVDC
+  - FenceMode = bridged(Direct)
+- 舊 vApp Network **保留**,跟新的並存(VM 還沒換到新的,維持服務)
+
+完成後到 VCD UI → vApp → Networks 應該看到原來 vApp net + 新的 `*-new` vApp net **都在**。
+
+### Step 2c:VM NIC 從舊 vApp net 切到新 vApp net
+
+```powershell
+pwsh .\Step2c-SwitchVMInVApp-V1.ps1 -WhatIf     # 列每台會切的 VM
+pwsh .\Step2c-SwitchVMInVApp-V1.ps1             # 真切
+```
+
+對每個 source 在每個 vApp 內:
+- 找該 vApp 裡 parent = source OVDC 的 vApp net 名稱清單
+- 對 vApp 內每台 VM:
+  - 把 NIC.network 在那清單內的,改成新 vApp net 名(`<source>-new`)
+  - PUT,wait task
+- 舊 vApp net 上 0 VM 後可手動到 VCD UI 刪掉(自由選擇)
+
+### (可選)Step 3-A:如果同 tenant **混合**有直連 OVDC 的 VM
+
+```powershell
+pwsh .\Step3-Switch-V3.ps1
+```
+
+跑這個處理沒走 vApp net 的那些 VM。Step2c + Step3-V3 不衝突 — Step2c 只動 NIC.network = vApp net 名的;Step3-V3 只動 NIC.network = OVDC 名的。
+
+---
+
+## 各情境完整命令
+
+### 情境 A:全 direct(常見)
+
+```powershell
+git pull
+pwsh .\Build-SourcesFromOrg-V3.ps1 -OrgName 'viqa.qa'
+pwsh .\Step12-Import-V3.ps1
+pwsh .\Step3-Switch-V3.ps1
+```
+
+### 情境 B:全 vApp net(常見 — 大部分 production tenant)
+
+```powershell
+git pull
+pwsh .\Build-SourcesFromOrg-V3.ps1 -OrgName 'viqa.qa'
+pwsh .\Step12-Import-V3.ps1
+pwsh .\Step2b-AddVAppNetwork-V1.ps1
+pwsh .\Step2c-SwitchVMInVApp-V1.ps1
+```
+
+### 情境 C:混合(部分 direct + 部分 vApp net)
+
+```powershell
+git pull
+pwsh .\Build-SourcesFromOrg-V3.ps1 -OrgName 'viqa.qa'
+pwsh .\Step12-Import-V3.ps1
+pwsh .\Step2b-AddVAppNetwork-V1.ps1
+pwsh .\Step2c-SwitchVMInVApp-V1.ps1
+pwsh .\Step3-Switch-V3.ps1     # 處理剩下直連的 VM
+```
+
+---
+
+## 看結果
+
+```powershell
+# Phase 1 (Step12)
 Get-Content .\state\step12-batch-result.json -Raw | ConvertFrom-Json |
     Select-Object -ExpandProperty results |
     Format-Table source, status, durationSec
 
-# Phase 2 — per-source 統計
-Get-Content .\state\step3-batch-result.json -Raw | ConvertFrom-Json |
+# Step2b (vApp Network add)
+Get-Content .\state\step2b-batch-result.json -Raw | ConvertFrom-Json |
     Select-Object -ExpandProperty results |
-    Format-Table source, status, vmCount, durationSec
+    Format-Table source, status, vappCount
 
-# Phase 2 — 看某個 source 內每台 VM 的成敗
-$r = Get-Content .\state\step3-batch-result.json -Raw | ConvertFrom-Json
+# Step2c (VM NIC switch inside vApp)
+$r = Get-Content .\state\step2c-batch-result.json -Raw | ConvertFrom-Json
+$r.results | Format-Table source, vmCount, status
 $r.results | Where-Object { $_.source -eq 'ds-10-191-043' } |
     Select-Object -ExpandProperty vmResults |
-    Format-Table vm, result, error -AutoSize
+    Format-Table vapp, vm, nicIndexes, status, error -AutoSize
+
+# Step3 (direct OVDC NIC switch)
+Get-Content .\state\step3-batch-result.json -Raw | ConvertFrom-Json |
+    Select-Object -ExpandProperty results |
+    Format-Table source, status, vmCount
 ```
 
-預期看到每筆 `status = ok`,每台 VM `result = Success`。
+---
 
-### Step 6:換下一個 tenant
+## 換下一個 tenant
 
 ```powershell
 pwsh .\Build-SourcesFromOrg-V3.ps1 -OrgName '另一個tenant'
-# configorg.json 被新 tenant 內容覆寫
-
-pwsh .\Step12-Import-V3.ps1
-# (verify in VCD UI)
-pwsh .\Step3-Switch-V3.ps1
+# configorg.json 被新 tenant 內容覆寫,跑同樣的 step 12 / 2b / 2c / 3
 ```
 
 ---
 
-## 怎麼避免每次都輸密碼
+## VM 開機可切
 
-兩種方式,詳見 [`CREDENTIALS.md`](CREDENTIALS.md):
+不管走情境 A / B,VM **完全不用關機**:
+- vCenter 對 NIC backing 的 reconfigure 是 hot 操作
+- IP / MAC / IP 配置模式都保留
+- 通常 < 1 秒 blip,TCP 自己 retransmit
+- **前提**:source 跟 dest 的 vDS uplinks 接同一條 physical 網路(同 VLAN 跨 vDS 標準情境)
 
-### 方式 A:腳本內變數(只在本機填)
+---
 
-每隻 V3 開頭有:
+## 密碼免每次輸入
+
+每隻 V2+ / Step2b / Step2c 開頭有:
 
 ```powershell
-# Step12-Import-V3.ps1 (vCenter + VCD 都要)
-$DEFAULT_VC_USERNAME  = ''     ← 填這
-$DEFAULT_VC_PASSWORD  = ''
-$DEFAULT_VCD_USERNAME = ''
-$DEFAULT_VCD_PASSWORD = ''
-
-# Build-SourcesFromOrg-V3.ps1 / Step3-Switch-V3.ps1 (只 VCD)
-$DEFAULT_VCD_USERNAME = ''
+$DEFAULT_VCD_USERNAME = ''     # 填這
 $DEFAULT_VCD_PASSWORD = ''
 ```
 
-填了就完全靜默不 prompt。
+填了就跳過 prompt。**填過密碼的版本絕不能 `git push`**(見 [CREDENTIALS.md](CREDENTIALS.md))。
 
-### 方式 B:讓 git 假裝你沒改過(防誤 commit)
+防呆:
 
 ```powershell
 git update-index --assume-unchanged Step12-Import-V3.ps1
+git update-index --assume-unchanged Step2b-AddVAppNetwork-V1.ps1
+git update-index --assume-unchanged Step2c-SwitchVMInVApp-V1.ps1
 git update-index --assume-unchanged Step3-Switch-V3.ps1
-git update-index --assume-unchanged Build-SourcesFromOrg-V3.ps1
 ```
-
-⚠️ **絕對不要把填過密碼的版本 `git push`**。
-
----
-
-## 部分執行 / 限筆數
-
-```powershell
-# 只跑第一筆(測試水溫)
-pwsh .\Step12-Import-V3.ps1 -Limit 1
-pwsh .\Step3-Switch-V3.ps1  -Limit 1
-```
-
-或編輯 configorg.json 砍掉 sources[] 內不要做的那幾筆。
 
 ---
 
 ## 反悔 / 回滾
 
-### Phase 2 切錯 → VM NIC 反向切回 source
+### Step2c / Step3 切錯 → NIC 切回去
+
+對少量 VM,**最快是 VCD UI 一台一台改回 NIC.network**。
+
+或自己寫一個 ad-hoc:
 
 ```powershell
-# 用 step 3 v1 的單 source 模式(不用 batch)
+# 例:把 ds-10-191-043-new 上的 VM 切回 ds-10-191-043
+# Step3-V3 直接吃 -SourceNetworkName,把它當「現在的」當 source
+# (此 flag 在 V3 沒了,可用單筆模式 03-switch-nics\Switch-TenantVmNics.ps1)
 pwsh .\03-switch-nics\Switch-TenantVmNics.ps1 -SourceNetworkName 'ds-10-191-043-new'
 ```
 
-或直接到 VCD UI 一台 VM 一台 VM 把 NIC 改回去(對少量 VM 最快)。
+### Step2b 加的 vApp net 想刪
 
-### Phase 1 建錯 → 刪 -new 物件
+確認 0 VM 接這個 vApp net 後,VCD UI → vApp → Networks → 刪。
 
-確認 -new network 上 0 VM 之後:
+### Step12 建的 -new OVDC / ext / portgroup 想全砍
 
-1. VCD UI → tenant Networks → 刪 `ds-10-191-XXX-new`
-2. VCD UI → Provider External Networks → 刪 `ext-ds-10-191-XXX-new`
-3. vCenter → vDS-TPE-vcd → 刪 `ds-10-191-XXX-new` portgroup(或用 step 1 `-Rollback`)
+確認都 0 VM 後,順序:
+1. VCD UI 砍 `*-new` Org VDC Network
+2. VCD Provider 砍 `ext-*-new` external network
+3. vCenter 砍 `vDS-TPE-vcd` 上的 `*-new` portgroup
 
 ---
 
@@ -224,22 +252,34 @@ pwsh .\03-switch-nics\Switch-TenantVmNics.ps1 -SourceNetworkName 'ds-10-191-043-
 
 | 症狀 | 處理 |
 | --- | --- |
-| `Required script missing: ...v1.X.ps1` | 拉到舊版 wrapper;改用 V3 standalone(`Step12-Import-V3.ps1`),不依賴 wrapper |
-| `Cannot validate argument on parameter 'Credential'` | 舊版 Get-Credential GUI 沒回應;V2+ 已改用 Read-Host,`git pull` 拿最新 |
-| `Response status code does not indicate success: 400` | V3 已 patch 會印 VCD 完整錯誤訊息,看 `VCD response:` 那段對症處理 |
-| `[poll #N] ... not yet visible / status=...` 卡很久 | Polling 中 — 5 分鐘 timeout 後會 throw,看 last status;或到 VCD UI 看 network 真正狀態 |
-| 切完 VM 斷網 | source 跟 dest 的 vDS uplinks 沒接同一條 physical 網路;確認兩 vDS 對應 host 接同 VLAN |
-| 某些 VM 切 NIC 失敗 | VM 鎖定中 / vApp 有 pending task;等該 task 結束重跑(idempotent),或先 power-off 那幾台 |
+| `Step2c` 報 `new-vappnet-missing` | Step2b 該 vApp 沒成功 / 沒跑;先補跑 Step2b |
+| `Step2b` / `Step2c` PUT 報 400 | 看 console 內 `VCD response:` 那段,VCD 會給具體欄位問題 |
+| VM NIC 切完斷網 | source / dest vDS uplinks 沒接同 physical 網路;或 vApp 是 fenced(NAT)非 bridged,vApp net 切過去後 NAT rule 改變 |
+| Step2b 加的 vApp net 已存在 | Script 會偵測,印 `skip vApp: dest vApp net already exists`,**不會重建** |
+| `git pull` 失敗 fast-forward | 之前有 force-push;`git fetch --all && git reset --hard origin/main` 對齊 |
+| VM 鎖定中無法 PUT | 等 VM 的 pending task 完成再重跑(Step2c / Step3 都 idempotent) |
 
 ---
 
-## TL;DR — 4 行最小流程
+## TL;DR
+
+### 走 vApp Network(典型 tenant)
 
 ```powershell
 git pull
 pwsh .\Build-SourcesFromOrg-V3.ps1 -OrgName 'viqa.qa'
 pwsh .\Step12-Import-V3.ps1
-pwsh .\Step3-Switch-V3.ps1   # 確認 phase 1 後再執行
+pwsh .\Step2b-AddVAppNetwork-V1.ps1
+pwsh .\Step2c-SwitchVMInVApp-V1.ps1
 ```
 
-VM 開機狀態都可以做,**不用 power-off**。
+### 直連 OVDC
+
+```powershell
+git pull
+pwsh .\Build-SourcesFromOrg-V3.ps1 -OrgName 'viqa.qa'
+pwsh .\Step12-Import-V3.ps1
+pwsh .\Step3-Switch-V3.ps1
+```
+
+VM **不用關機**。
