@@ -336,7 +336,7 @@ Write-Host "Org VDC URN: $OrgVdcUrn"
 # Cache all vApps in the org ONCE (per-source loop reuses)
 Write-Host "Listing vApps in org..." -ForegroundColor Cyan
 $allVApps = @()
-try { $allVApps = Get-VcdQuery -Session $session -Type 'adminVApp' -Filter "isVAppTemplate==false;org==$orgHref" }
+try { $allVApps = Get-VcdQuery -Session $session -Type 'adminVApp' -Filter "org==$orgHref" }
 catch { throw "Failed to list vApps: $($_.Exception.Message)" }
 Write-Host ("  Found {0} vApp(s)" -f $allVApps.Count)
 

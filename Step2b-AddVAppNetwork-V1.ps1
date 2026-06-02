@@ -240,7 +240,7 @@ function Add-OvdcAsVAppNetwork {
 
     Write-Host "  Scanning vApps with vApp Network parented to '$SourceName'..." -ForegroundColor DarkGray
     $vappRecords = @()
-    try { $vappRecords = Get-VcdQuery -Session $Session -Type 'adminVApp' -Filter "isVAppTemplate==false;org==$OrgHref" }
+    try { $vappRecords = Get-VcdQuery -Session $Session -Type 'adminVApp' -Filter "org==$OrgHref" }
     catch { Write-Warning "  Failed to query vApps: $($_.Exception.Message)"; return @() }
 
     $results = New-Object System.Collections.Generic.List[object]
