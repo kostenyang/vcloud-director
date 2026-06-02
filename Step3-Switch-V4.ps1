@@ -425,7 +425,11 @@ $summary = [ordered]@{
     partial        = ($results | Where-Object { $_.status -eq 'partial' }).Count
     failed         = ($results | Where-Object { $_.status -eq 'failed' }).Count
     whatif         = ($results | Where-Object { $_.status -eq 'whatif' }).Count
-    totalVmSwitched= ($results | ForEach-Object { ($_.vmResults | Where-Object { $_.result -eq 'Success' }).Count } | Measure-Object -Sum).Sum
+    totalVmSwitched = $(
+        $sum = 0
+        foreach ($r in $results) { $sum += @($r.vmResults | Where-Object { $_.result -eq 'Success' }).Count }
+        $sum
+    )
     results        = $results
 }
 $outDir = Split-Path $resultPath

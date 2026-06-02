@@ -391,7 +391,11 @@ $summary = [ordered]@{
     ok             = ($results | Where-Object { $_.status -eq 'ok' }).Count
     partial        = ($results | Where-Object { $_.status -eq 'partial' }).Count
     failed         = ($results | Where-Object { $_.status -eq 'failed' }).Count
-    totalVappsAdded= ($results | ForEach-Object { ($_.vappResults | Where-Object { $_.result -eq 'Success' }).Count } | Measure-Object -Sum).Sum
+    totalVappsAdded = $(
+        $sum = 0
+        foreach ($r in $results) { $sum += @($r.vappResults | Where-Object { $_.result -eq 'Success' }).Count }
+        $sum
+    )
     results        = $results
 }
 $outDir = Split-Path $resultPath
