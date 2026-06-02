@@ -375,27 +375,33 @@ foreach ($src in $sources) {
         source = $sourceName; dest = $destName; newVAppNetName = $newName
         status = $status
         vappCount = ($perSource | Measure-Object).Count
-        vappResults = @($perSource)
+        vappResults = if ($perSource) { $perSource.ToArray() } else { @() }
         durationSec = [math]::Round($elapsed, 2)
         error = $errMsg
     })
 }
 
-# Summary
+# Summary - compute counts first, then build hashtable
+$okCount      = @($results | Where-Object { $_.status -eq 'ok' }).Count
+$partialCount = @($results | Where-Object { $_.status -eq 'partial' }).Count
+$failedCount  = @($results | Where-Object { $_.status -eq 'failed' }).Count
+$totalVappsAdded = 0
+foreach ($r in $results) {
+    if ($r.vappResults) {
+        $totalVappsAdded += @($r.vappResults | Where-Object { $_.result -eq 'Success' }).Count
+    }
+}
+
 $summary = [ordered]@{
     runAt          = (Get-Date).ToString('o')
     createdBy      = 'Step2b-AddVAppNetwork-V1.ps1 (standalone)'
     config         = $ConfigPath
     totalSources   = $sources.Count
     processed      = $results.Count
-    ok             = ($results | Where-Object { $_.status -eq 'ok' }).Count
-    partial        = ($results | Where-Object { $_.status -eq 'partial' }).Count
-    failed         = ($results | Where-Object { $_.status -eq 'failed' }).Count
-    totalVappsAdded = $(
-        $sum = 0
-        foreach ($r in $results) { $sum += @($r.vappResults | Where-Object { $_.result -eq 'Success' }).Count }
-        $sum
-    )
+    ok             = $okCount
+    partial        = $partialCount
+    failed         = $failedCount
+    totalVappsAdded = $totalVappsAdded
     results        = $results
 }
 $outDir = Split-Path $resultPath

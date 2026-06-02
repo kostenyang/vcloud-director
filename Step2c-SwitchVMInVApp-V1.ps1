@@ -378,27 +378,33 @@ foreach ($src in $sources) {
         newVAppNetName = $effectiveNewName
         status         = $status
         vmCount        = ($allVmReports | Where-Object { $_.vm }).Count
-        vmResults      = @($allVmReports)
+        vmResults = $allVmReports.ToArray()
         durationSec    = [math]::Round($elapsed, 2)
         error          = $errMsg
     })
 }
 
-# Summary
+# Summary - compute counts first, then build hashtable
+$okCount      = @($results | Where-Object { $_.status -eq 'ok' }).Count
+$partialCount = @($results | Where-Object { $_.status -eq 'partial' }).Count
+$failedCount  = @($results | Where-Object { $_.status -eq 'failed' }).Count
+$totalVm      = 0
+foreach ($r in $results) {
+    if ($r.vmResults) {
+        $totalVm += @($r.vmResults | Where-Object { $_.status -eq 'ok' }).Count
+    }
+}
+
 $summary = [ordered]@{
     runAt           = (Get-Date).ToString('o')
     createdBy       = 'Step2c-SwitchVMInVApp-V1.ps1 (standalone)'
     config          = $ConfigPath
     totalSources    = $sources.Count
     processed       = $results.Count
-    ok              = ($results | Where-Object { $_.status -eq 'ok' }).Count
-    partial         = ($results | Where-Object { $_.status -eq 'partial' }).Count
-    failed          = ($results | Where-Object { $_.status -eq 'failed' }).Count
-    totalVmSwitched = $(
-        $sum = 0
-        foreach ($r in $results) { $sum += @($r.vmResults | Where-Object { $_.status -eq 'ok' }).Count }
-        $sum
-    )
+    ok              = $okCount
+    partial         = $partialCount
+    failed          = $failedCount
+    totalVmSwitched = $totalVm
     results         = $results
 }
 $outDir = Split-Path $resultPath

@@ -362,7 +362,7 @@ foreach ($src in $sources) {
             $elapsed = ((Get-Date) - $started).TotalSeconds
             $results.Add([ordered]@{
                 source=$sourceName; dest=$destName; status=$status; vmCount=0; vmResults=@()
-                vappNetworkResults=$vappNetResults
+                vappNetworkResults = if ($vappNetResults) { [array]$vappNetResults } else { @() }
                 durationSec=[math]::Round($elapsed,2); error=$null
             })
             continue
@@ -407,8 +407,8 @@ foreach ($src in $sources) {
     $results.Add([ordered]@{
         source=$sourceName; dest=$destName; status=$status
         vmCount=$vmReport.Count
-        vmResults=$vmReport
-        vappNetworkResults=$vappNetResults
+        vmResults = if ($vmReport) { $vmReport.ToArray() } else { @() }
+        vappNetworkResults = if ($vappNetResults) { [array]$vappNetResults } else { @() }
         durationSec=[math]::Round($elapsed,2)
         error=$errMsg
     })
