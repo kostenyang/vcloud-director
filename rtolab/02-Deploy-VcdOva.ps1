@@ -1,21 +1,25 @@
 <#
 .SYNOPSIS
     Deploy VMware Cloud Director 10.6.1 appliance OVA.
-    VM: kosten-vcd.rtolab.local @ 192.168.114.60
+    eth0 (管理/API): kosten-vcd.rtolab.local @ 192.168.114.60
+    eth1 (內部服務/DB): 192.168.114.62
 
 .DESCRIPTION
-    Step 1 (建議先跑): -DumpPropertiesOnly  -> 印出 OVA 的 OVF property 名稱
-    Step 2: 去掉 flag 實際部署
-    VCD firstboot ~10-15 min; 完成後用 https://192.168.114.60/cloud 做 wizard 設定.
+    OVF 四個 ProductSection:
+      vami        -> ip0/netmask0/ip1/netmask1/gateway/DNS/domain/searchpath
+      vcloudapp   -> ntp-server/varoot-password/enable_ssh/expire_root_password/nfs_mount
+      vcloudconf  -> admin_uname/admin_pwd/admin_email/sys_name
+      vcloudnet   -> routes0/routes1 (lab 不用設)
+
+    全部用 OVF 設好，不需要跑 firstboot wizard.
+    NetworkMapping 為空時由 post-deploy Set-NetworkAdapter 修正.
 
 .EXAMPLE
-    pwsh E:\VCD\02-Deploy-VcdOva.ps1 -DumpPropertiesOnly
     pwsh E:\VCD\02-Deploy-VcdOva.ps1
     pwsh E:\VCD\02-Deploy-VcdOva.ps1 -WipeFirst
 #>
 param(
-    [switch] $WipeFirst,
-    [switch] $DumpPropertiesOnly
+    [switch] $WipeFirst
 )
 
 $ErrorActionPreference = 'Stop'
@@ -25,16 +29,27 @@ Set-PowerCLIConfiguration -InvalidCertificateAction Ignore -Confirm:$false -Scop
 # --------------- 固定參數 ---------------
 $ovaPath  = 'E:\VCD\VMware_Cloud_Director-10.6.1.11883-25088252_OVF10.ova'
 $vmName   = 'kosten-vcd'
-$hostname = 'kosten-vcd'
 $domain   = 'rtolab.local'
-$fqdn     = "$hostname.$domain"
-$ip       = '192.168.114.60'
-$netmask  = '255.255.255.0'
-$prefix   = '24'
+$fqdn     = "kosten-vcd.$domain"
+
+# vami — 網路
+$ip0      = '192.168.114.60'
+$netmask0 = '255.255.255.0'
+$ip1      = '192.168.114.62'   # eth1: internal services / embedded DB
+$netmask1 = '255.255.255.0'
 $gateway  = '192.168.114.254'
 $dns      = '192.168.114.200'
+
+# vcloudapp — 系統
 $ntp      = '192.168.114.200'
 $rootPw   = 'VMware1!VMware1!'
+$nfsMount = '192.168.114.61:/exports/vcd-transfer'
+
+# vcloudconf — VCD admin (wizard skip)
+$adminUser  = 'administrator'
+$adminPw    = 'VMware1!VMware1!'
+$adminEmail = "admin@$domain"
+$sysName    = 'kosten-vcd'
 
 # outer vCenter
 $vcServer = 'vc-mgmt.vmware.taiwan'
@@ -46,61 +61,6 @@ $pgName   = 'selab-dswitch-pg114'
 $clName   = 'SELAB-Cluster'
 # --------------- 參數結束 ---------------
 
-# ----- 遞迴印出 OvfConfig 所有 property -----
-function Show-OvfProperties {
-    param($node, [string]$prefix = '')
-    foreach ($p in $node.PSObject.Properties) {
-        $v = $p.Value
-        if ($null -eq $v) { continue }
-        if ($v.GetType().Name -eq 'OvfPropertyValue') {
-            Write-Host ("  {0,-70} = '{1}'" -f ($prefix + $p.Name), $v.Value) -ForegroundColor DarkCyan
-        } elseif ($v.GetType().Name -eq 'OvfNetworkMappingValue') {
-            Write-Host ("  NetworkMapping.{0}" -f $p.Name) -ForegroundColor DarkGray
-        } else {
-            Show-OvfProperties $v ($prefix + $p.Name + '.')
-        }
-    }
-}
-
-# ----- 嘗試設 OVF property (不噴錯) -----
-function Try-SetProp {
-    param($cfg, [string]$keyPath, [string]$val)
-    $parts = $keyPath -split '\.'
-    try {
-        # 先試頂層 Common 直接當 flat key
-        $node = $cfg.Common
-        if ($node.PSObject.Properties[$keyPath]) {
-            $node.$keyPath.Value = $val; return $true
-        }
-        # 再試逐層下鑽
-        foreach ($part in $parts) {
-            if ($null -eq $node -or -not $node.PSObject.Properties[$part]) { return $false }
-            $node = $node.$part
-        }
-        if ($node.GetType().Name -eq 'OvfPropertyValue') {
-            $node.Value = $val; return $true
-        }
-    } catch {}
-    return $false
-}
-
-Write-Host "Loading OVF config from $ovaPath ..." -ForegroundColor Cyan
-Write-Host "(OVA 2.4GB, 解析需 ~30s)" -ForegroundColor DarkGray
-$cfg = Get-OvfConfiguration -Ovf $ovaPath
-
-Write-Host ""
-Write-Host "=== OVF properties in this OVA ===" -ForegroundColor Yellow
-Show-OvfProperties $cfg
-Write-Host "===================================" -ForegroundColor Yellow
-
-if ($DumpPropertiesOnly) {
-    Write-Host ""
-    Write-Host "-DumpPropertiesOnly: 停在這裡. 確認上面的 property 名稱後去掉 flag 再部." -ForegroundColor Yellow
-    Write-Host "  如果 property 名稱跟腳本裡的 propMap 不符, 請修改 02-Deploy-VcdOva.ps1 的 propMap." -ForegroundColor Yellow
-    return
-}
-
-Write-Host ""
 Write-Host "Connecting $vcServer ..." -ForegroundColor Cyan
 Connect-VIServer $vcServer -User $vcUser -Password $vcPw | Out-Null
 
@@ -125,76 +85,61 @@ $pg     = Get-VDPortgroup  -Name $pgName -ErrorAction Stop
 $cl     = Get-Cluster      -Name $clName -ErrorAction Stop
 $vmhost = $cl | Get-VMHost | Where-Object { $_.ConnectionState -eq 'Connected' -and $_.PowerState -eq 'PoweredOn' } | Get-Random
 
-# network mapping
-if ($cfg.NetworkMapping) {
-    $cfg.NetworkMapping.PSObject.Properties | ForEach-Object { $_.Value.Value = $pg }
-}
+Write-Host "Loading OVF config (2.4GB OVA, ~30s) ..." -ForegroundColor Cyan
+$cfg = Get-OvfConfiguration -Ovf $ovaPath
+$cfg.DeploymentOption.Value = 'primary-small'
 
-# VCD 10.x OVF property map (vami namespace, PhotonOS appliance)
-# 執行 -DumpPropertiesOnly 後若 key 名稱不同請在此修改
-$propMap = [ordered]@{
-    # --- vami namespace (VCD 10.4+) ---
-    'vami.VMware_vCloud_Director.ip0'         = $ip
-    'vami.VMware_vCloud_Director.netmask0'    = $netmask
-    'vami.VMware_vCloud_Director.gateway'     = $gateway
-    'vami.VMware_vCloud_Director.DNS'         = $dns
-    'vami.VMware_vCloud_Director.domain'      = $domain
-    'vami.VMware_vCloud_Director.searchpath'  = $domain
-    'vami.VMware_vCloud_Director.hostname'    = $fqdn
-    'vami.VMware_vCloud_Director.ntp'         = $ntp
-    # --- flat vami (舊版風格) ---
-    'vami.ip0.VMware_vCloud_Director'         = $ip
-    'vami.netmask0.VMware_vCloud_Director'    = $netmask
-    'vami.gateway.VMware_vCloud_Director'     = $gateway
-    'vami.DNS.VMware_vCloud_Director'         = $dns
-    'vami.domain.VMware_vCloud_Director'      = $domain
-    'vami.searchpath.VMware_vCloud_Director'  = $domain
-    'vami.hostname.VMware_vCloud_Director'    = $fqdn
-    'vami.ntp.VMware_vCloud_Director'         = $ntp
-    # --- common keys ---
-    'ROOT_PASSWORD'                            = $rootPw
-    'ENABLE_SSH'                               = 'true'
-    'guestinfo.cis.appliance.root.passwd'      = $rootPw
-    'guestinfo.cis.appliance.ssh.enabled'      = 'true'
-    'guestinfo.cis.appliance.net.addr'         = $ip
-    'guestinfo.cis.appliance.net.prefix'       = $prefix
-    'guestinfo.cis.appliance.net.gateway'      = $gateway
-    'guestinfo.cis.appliance.net.dns.servers'  = $dns
-    'guestinfo.cis.appliance.net.pnid'         = $fqdn
-    'guestinfo.cis.appliance.net.mode'         = 'static'
-    'guestinfo.cis.appliance.net.addr.family'  = 'ipv4'
-}
+# ---- NetworkMapping: 兩個 NIC 都接 pg114 ----
+$cfg.NetworkMapping.eth0_Network.Value = $pg
+$cfg.NetworkMapping.eth1_Network.Value = $pg
 
-$set = 0
-foreach ($kv in $propMap.GetEnumerator()) {
-    if (Try-SetProp $cfg $kv.Key $kv.Value) {
-        Write-Host "  [set] $($kv.Key) = '$($kv.Value)'" -ForegroundColor DarkGray
-        $set++
-    }
-}
-Write-Host "  $set properties set." -ForegroundColor $(if ($set -gt 0) { 'Green' } else { 'Red' })
-if ($set -eq 0) {
-    Write-Warning "No OVF properties matched. Run with -DumpPropertiesOnly first and update propMap in the script."
-}
+# ---- vami: 網路設定 ----
+$cfg.vami.VMware_vCloud_Director.ip0.Value        = $ip0
+$cfg.vami.VMware_vCloud_Director.netmask0.Value   = $netmask0
+$cfg.vami.VMware_vCloud_Director.ip1.Value        = $ip1
+$cfg.vami.VMware_vCloud_Director.netmask1.Value   = $netmask1
+$cfg.vami.VMware_vCloud_Director.gateway.Value    = $gateway
+$cfg.vami.VMware_vCloud_Director.DNS.Value        = $dns
+$cfg.vami.VMware_vCloud_Director.domain.Value     = $domain
+$cfg.vami.VMware_vCloud_Director.searchpath.Value = $domain
+
+# ---- vcloudapp: 系統 (userConfigurable=true 的才能設) ----
+$cfg.vcloudapp.VMware_vCloud_Director.ntp_server.Value           = $ntp
+$cfg.vcloudapp.VMware_vCloud_Director.varoot_password.Value      = $rootPw
+$cfg.vcloudapp.VMware_vCloud_Director.expire_root_password.Value = $false
+$cfg.vcloudapp.VMware_vCloud_Director.enable_ssh.Value           = $true
+# nfs_mount / vcloudconf (admin_uname/pwd/email/sys_name) 是 userConfigurable=false
+# PowerCLI 不開放設定 → firstboot wizard 填入 (需 <5 min)
+
+Write-Host "OVF properties set:" -ForegroundColor DarkGray
+Write-Host "  eth0: $ip0/$netmask0  GW: $gateway  DNS: $dns" -ForegroundColor DarkGray
+Write-Host "  eth1: $ip1/$netmask1  (internal DB)" -ForegroundColor DarkGray
+Write-Host "  root: $rootPw  SSH: enabled  NTP: $ntp" -ForegroundColor DarkGray
+Write-Host "  (NFS + admin 在 firstboot wizard 設定)" -ForegroundColor DarkGray
 
 Write-Host ""
-Write-Host "Deploying $vmName (thin) -> $rpName / $dsName ..." -ForegroundColor Cyan
+Write-Host "Deploying $vmName (primary-small, thin) -> $rpName / $dsName ..." -ForegroundColor Cyan
 $vm = Import-VApp -Source $ovaPath -OvfConfiguration $cfg -Name $vmName `
-    -VMHost $vmhost -Datastore $ds -DiskStorageFormat Thin -Location $rp -Force
+    -VMHost $vmhost -Datastore $ds -DiskStorageFormat Thin -Location $rp `
+    -Force
+
+# NetworkMapping 空，部完後接正確 portgroup
+Write-Host "Fixing network adapters -> $pgName ..." -ForegroundColor Cyan
+$vm | Get-NetworkAdapter | Set-NetworkAdapter -Portgroup $pg -Confirm:$false | Out-Null
+Write-Host "  eth0 + eth1 both mapped to $pgName" -ForegroundColor DarkGray
 
 Write-Host "Powering on ..." -ForegroundColor Cyan
 Start-VM $vm -Confirm:$false | Out-Null
 
-Write-Host ""
-Write-Host "✓ $vmName powered on. VCD firstboot ~10-15 min." -ForegroundColor Green
-Write-Host "  Ping check:  Test-Connection $ip -Count 1" -ForegroundColor Cyan
-Write-Host "  SSH (root):  ssh root@$ip" -ForegroundColor Cyan
-Write-Host "  Setup UI:    https://$ip/cloud  (after firstboot)" -ForegroundColor Cyan
-Write-Host ""
-Write-Host "Next steps:" -ForegroundColor Yellow
-Write-Host "  1. pwsh E:\VCD\04-Add-VcdDns.ps1       (add DNS records now)"
-Write-Host "  2. Wait for VCD firstboot to complete"
-Write-Host "  3. pwsh E:\VCD\03-Configure-Vcd.ps1    (mount NFS, verify)"
-Write-Host "  4. Complete wizard at https://$fqdn/cloud"
-
 Disconnect-VIServer * -Confirm:$false -Force | Out-Null
+
+Write-Host ""
+Write-Host "✓ $vmName deployed & powered on (primary-small: 2 vCPU)." -ForegroundColor Green
+Write-Host "  Firstboot ~10-15 min (DB init + NFS mount + cell config)" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "  UI:    https://$fqdn/ui       (admin / $adminPw)" -ForegroundColor Cyan
+Write-Host "  API:   https://$ip0/api" -ForegroundColor Cyan
+Write-Host "  SSH:   root@$ip0  (pw: $rootPw)" -ForegroundColor Cyan
+Write-Host "  eth1 (internal): $ip1" -ForegroundColor DarkGray
+Write-Host ""
+Write-Host "Next: pwsh E:\VCD\03-Configure-Vcd.ps1  (firstboot 後驗證)" -ForegroundColor Yellow
