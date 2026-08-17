@@ -3,6 +3,8 @@
 把 **VMware Cloud Director 10.6.2**（Migration Patch / bridge 版）接到 **VCF 9.1**
 （vCenter 9.1 + NSX 9.1）的實機驗證紀錄：**做得到什麼、踩了哪些坑、正確的 API 長什麼樣**。
 
+> 📖 架構概念與「bridge 狀態」怎麼湊出來 → [`bridge-state.md`](bridge-state.md)
+
 > 官方互通矩陣的 VCD 10.6.x 只列到 vSphere 8 / NSX 4.x。10.6.2 是**專為銜接 VCF 9 的 gated patch**，
 > 用途是建立「VCD 舊租戶」與「VCFA 新架構」在同一批硬體上並存的 **bridge 狀態**，
 > 讓底層先升到 VCF 9.1，再逐步把 tenant 搬到 VCF Automation。
