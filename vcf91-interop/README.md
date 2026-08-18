@@ -4,6 +4,7 @@
 （vCenter 9.1 + NSX 9.1）的實機驗證紀錄：**做得到什麼、踩了哪些坑、正確的 API 長什麼樣**。
 
 > 📖 架構概念與「bridge 狀態」怎麼湊出來 → [`bridge-state.md`](bridge-state.md)
+> 🖼 VCFA 側（Edge 同步對應 + Migration Tool 現況，含截圖）→ [`vcfa-side.md`](vcfa-side.md)
 
 > 官方互通矩陣的 VCD 10.6.x 只列到 vSphere 8 / NSX 4.x。10.6.2 是**專為銜接 VCF 9 的 gated patch**，
 > 用途是建立「VCD 舊租戶」與「VCFA 新架構」在同一批硬體上並存的 **bridge 狀態**，
