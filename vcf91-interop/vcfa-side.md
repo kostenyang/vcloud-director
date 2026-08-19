@@ -318,3 +318,94 @@ VCF Automation             9.1.0.0100.25429499 → 9.1.0.0200.25556825   Ready f
   `vcf-sddc-build-service` CrashLoopBackOff ×746。同樣的 reinit 手法應可修復。
 - Fleet Manager 的 depot 一直是正常的（`Connected to offline depot`），
   binaries 也能從 content-gateway 正常下載 —— **depot 從頭到尾都不是問題**。
+
+## 第二顆骨牌：`vcf-sddc-lcm` 也是同一個病（precheck 卡 PENDING）
+
+修好 `vcf-fleet-lcm` 之後，`RUN PRECHECKS (ALL)` 送得出去了，但兩個 task 停在
+**Pending 且沒有任何 subtask**，超過 20 分鐘沒動。
+
+從 `fleet-upgrade-service` 的 log 看得出癥結 —— precheck 不是 fleet 自己跑的，
+它建立的是 `SDDC_SERVICE_TASK`，要交給 **SDDC LCM** 執行：
+
+```
+FleetPrecheckExecutionStep ... IN_PROGRESS. Default state.
+Task statuses: {01a018c2-42b1-...=PENDING, 01a018c2-4bba-...=PENDING}
+   startTaskUrlPath = /v1/components/<id>?action=precheck
+   targetSddcServiceId = 61fe9280-97c2-47d9-bb85-bdc9bc5e1563   ← SDDC LCM
+```
+
+而 `vcf-sddc-lcm` 的狀態：
+
+```
+vcf-sddc-build-service-sddcbuild-...     0/1  CrashLoopBackOff  751
+vcf-sddc-upgrade-service-sddcupgrade-... 0/1  CrashLoopBackOff  778
+vcf-sddc-lcm-db-1                        2/3  Running
+vcf-sddc-lcm-db-2                        2/3  Running
+```
+
+Patroni 比 fleet 那次更糟 —— **兩個 replica 都不是 streaming**：
+
+```
+| vcf-sddc-lcm-db-0 | Leader  | running  | 25 |         |
+| vcf-sddc-lcm-db-1 | Replica | starting |    | unknown |
+| vcf-sddc-lcm-db-2 | Replica | starting |    | unknown |
+```
+
+沒有任何 Sync Standby → leader 的同步寫入被卡住 → 兩個 sddc 服務起不來。
+db-1 的 postgres log 是同一個死路（要的 WAL 已被回收，archive 也沒有，
+於是一路往回試、永遠 fetch 不到）：
+
+```
+ERROR: Archive '0000000D0000000800000042' does not exist.
+ERROR: Archive '0000000C0000000800000042' does not exist.
+ERROR: Archive '0000000B0000000800000042' does not exist.   ← 無限倒退
+FATAL:  the database system is starting up
+```
+
+同樣的修法（這個 DB 很小，25 秒就重建完）：
+
+```bash
+sudo crictl exec <postgres-container> \
+  patronictl reinit vcf-sddc-lcm-db vcf-sddc-lcm-db-1 --force
+sudo crictl exec <postgres-container> \
+  patronictl reinit vcf-sddc-lcm-db vcf-sddc-lcm-db-2 --force
+```
+
+| 對象 | 修復前 | 修復後 |
+|---|---|---|
+| `vcf-sddc-lcm-db-1` | 2/3，Patroni `starting` | **3/3，Sync Standby，streaming，Lag 0** |
+| `vcf-sddc-build-service` | CrashLoopBackOff ×751 | **1/1 Running** |
+| `vcf-sddc-upgrade-service` | CrashLoopBackOff ×778 | **1/1 Running** |
+| precheck task | `PENDING`（20 分鐘不動） | **`RUNNING`（立刻接手）** |
+
+> 教訓：VCF 9.1 的 LCM 是 **fleet-lcm → sddc-lcm → VMSP(VCFA)** 三段接力，
+> 任何一段的 Patroni 掛掉都會讓上游停在 Pending 而**不報錯**。
+> 看到 task 長時間 Pending 又沒有 subtask，就往下一段服務查。
+
+## Precheck 實際執行的樣子
+
+sddc-lcm 恢復後，它把工作往下推給 VMSP（也就是 VCFA appliance 本身）：
+
+```
+POST https://vcf-m02-auto-platform.home.lab/api/v1/components/<id>?action=upgrade-precheck
+  → 201 Created   task diwabyq5lfgvzivybs3pt34pie
+     type: com.vmware.vcfms.task.UpgradeComponentPrecheck
+```
+
+兩個元件走的路徑不同：
+
+| 元件 | VMSP task type | 階段 |
+|---|---|---|
+| Migration service engine | `UpgradeComponentPrecheck` | `component-upgrade` Precheck **Succeeded** → `upgrade-91-patch` Precheck Running → deploy/patch stages Pending |
+| VCF Automation | `StageComponent` | `stage` Precheck **Succeeded** → `staging` Workflow Running（把 15 G bundle 從 content-gateway 拉進 VSP） |
+
+VCFA 的 spec 裡同時帶了三個 depot manifest，可以看出這個 patch 的組成：
+
+```
+VRA                             → depot-manifest-vcfa-bundle-9.1.0.0200.25556825.yaml
+VCF_SERVICE_VCD_MIGRATION_BACKEND → depot-manifest-vcd-migrator-9.1.0.0200.25556825.yaml
+VSP                             → depot-manifest-vmsp-platform-9.1.0.0.25370367.yaml
+```
+
+—— **VCD migration backend 是跟著 VCFA 0200 一起帶進來的**，這也解釋了為什麼
+0100 上 `/migration/api/*` 一直是 502：那個 backend 在 0100 根本沒有被安裝。
