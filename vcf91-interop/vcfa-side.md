@@ -189,7 +189,7 @@ cell-management-tool manage-secret-migration-keys
 
 （`/data/migrator-keys.json` 尚未建立是正常的 —— 那是 Add Site 之後的步驟，見 Migration Guide p.15。）
 
-## 卡住的地方：如何讓 Fleet Manager 把 image 拉進來
+## 【已解決】卡住的地方：如何讓 Fleet Manager 把 image 拉進來
 
 正確的架構是：
 
@@ -220,3 +220,101 @@ offline depot ──► Fleet Manager (content-gateway) ──► VCFA service c
 > 註：VCFA appliance 的 root 密碼不在 SDDC Manager credential store、
 > 不在 Supervisor secret、也不是 bring-up spec 的密碼，因此無法從 appliance 內部檢視或部署。
 
+
+---
+
+# 【續】真正的根因：VSP 上的 Postgres 壞了 37 天
+
+上一節推論「後端從未部署」是對的，但**為什麼沒部署**當時還沒查到。繼續追之後，
+真正的病灶在更下層 —— 而且與 VCD、migration、授權**都無關**。
+
+## 完整因果鏈
+
+```
+VSP 上 vcf-fleet-lcm 的 Postgres 叢集：兩個 replica 都跟不上 leader
+  db-1: 需要的 WAL segment 已被回收、archive 也沒有 → 永遠追不上
+  db-2: in archive recovery，落後 5.3 GB
+        ↓  寫入等待 replica 確認
+  ERROR: canceling statement due to statement timeout
+        while updating tuple in relation "meta_workflow_def"
+        ↓
+vcf-fleet-build-service / vcf-fleet-upgrade-service  CrashLoopBackOff
+  （37 天、890 次重啟）
+        ↓
+GET /vcf-operations/plug/fleet-lcm/ui/index.html  →  500
+        ↓
+VCF Operations →「VCF Management」頁面空白
+        ↓
+VCF Automation 的升級入口不存在
+        ↓
+VCFA 停在 9.1.0.0100，Migration service engine 停在 9.1.0.0
+        ↓
+migration 後端（與 VCFA 0200 同一 build）never deployed
+        ↓
+/migration/api/*  →  502
+```
+
+## 診斷方式（可重複）
+
+VCF Operations 的 SSH 是關的、fleet01 的密碼不通，但 **VSP 節點可以用
+`vmware-system-user` 進去**，再用 `sudo` + node-agent kubeconfig 看 pod：
+
+```bash
+ssh vmware-system-user@<vsp-node>
+sudo kubectl --kubeconfig=/etc/kubernetes/node-agent.conf get pods -A \
+  | awk '$4!="Running" && $4!="Completed"'
+```
+
+該 kubeconfig 的 RBAC 不能 `logs` / `exec` / `delete`，改用 `crictl`（不受 k8s RBAC 限制）：
+
+```bash
+sudo crictl ps -a --name <container>          # 找容器
+sudo crictl logs --tail 30 <container-id>     # 看崩潰原因
+sudo crictl exec <postgres-container> patronictl list
+```
+
+## 修復
+
+Patroni 顯示 replica 卡死後，對該 replica 做 reinit（從 leader 重做 basebackup，
+**leader 不受影響**）：
+
+```bash
+sudo crictl exec <postgres-container> \
+  patronictl reinit vcf-fleet-lcm-db vcf-fleet-lcm-db-1 --force
+```
+
+結果：
+
+| 對象 | 修復前 | 修復後 |
+|---|---|---|
+| `vcf-fleet-lcm-db-1` | 2/3，Patroni `starting` 卡死 | **3/3，Sync Standby，streaming，Lag 0** |
+| `vcf-fleet-build-service` | CrashLoopBackOff ×890 | **1/1 Running** |
+| `vcf-fleet-upgrade-service` | CrashLoopBackOff ×880 | **1/1 Running** |
+| VCF Management 頁面 | 空白（plugin 500） | **正常顯示 10 個 management components** |
+
+## 升級路徑（終於現形）
+
+`VCF Operations → Build → Lifecycle → VCF Management → Upgrade → CHANGE TARGET VERSION → CUSTOMIZE`
+
+元件清單裡有一個獨立項目 **`Migration service engine`** —— 這就是那個「缺失的後端」，
+它一直是可管理的 VCF management component，只是頁面壞了所以看不到。
+
+把兩個元件的 target version 設為 `9.1.0.0200.25556825` 後，升級項目立即出現：
+
+```
+Migration service engine   9.1.0.0.25370929   → 9.1.0.0200.25556825   Ready for upgrade
+VCF Automation             9.1.0.0100.25429499 → 9.1.0.0200.25556825   Ready for upgrade
+```
+
+> ⚠️ UI 細節：頁首的 `Target Version 9.1.0.*` 標籤**不會**因為個別元件的設定而改變，
+> 容易誤判成「沒設定成功」。要看下方是否出現 upgrade 項目列表。
+>
+> ⚠️ 用 JS 直接改 `<select>.value` **不會**被 Angular 接受；要用真實 UI 操作。
+> （對話框在 iframe 內，`document.querySelector` 在 top frame 找不到元素。）
+
+## 其他發現
+
+- `vcf-sddc-lcm` 有**一模一樣的病**：`db-1`、`db-2` 都是 2/3，
+  `vcf-sddc-build-service` CrashLoopBackOff ×746。同樣的 reinit 手法應可修復。
+- Fleet Manager 的 depot 一直是正常的（`Connected to offline depot`），
+  binaries 也能從 content-gateway 正常下載 —— **depot 從頭到尾都不是問題**。
