@@ -17,3 +17,7 @@ tmp.txt
 # OVA / ISO 大檔不進 repo
 *.ova
 *.iso
+
+# nsx-alb-avi-rebuild 的備份檔(含環境資訊)
+vcd-alb-backup-*.json
+__pycache__/

@@ -471,3 +471,12 @@ pwsh ./01-create-portgroup/New-DistributedPortGroup-v1.1.ps1 -Rollback
 - 重接網卡會**保留 IP / MAC / IP 配置模式**,只改變網卡所連接的網路。
 - 匯入網路屬 **provider 操作**,務必用 System 帳號。
 - 帳密只透過 `Get-Credential` 即時輸入,不落地、不進 git。批次 wrapper 在記憶體 cache 一份,跑完即釋放。
+
+---
+
+## 其他主題
+
+| 資料夾 | 內容 |
+|---|---|
+| [`vcf91-interop/`](vcf91-interop/) | VCD 10.6.2 接 VCF 9.1（vCenter 9 / NSX 9）互通驗證報告與建置順序 |
+| [`nsx-alb-avi-rebuild/`](nsx-alb-avi-rebuild/) | Avi（NSX ALB）controller 重裝 / 換 CA 後修復 VCD 的 NSX-ALB 設定：信任新憑證 → 刪舊 SEG / Cloud → 匯回新的。解 `Cannot delete Load Balancer Controller ... has associated Load Balancer Clouds`、`PKIX path building failed`（Python，預設 dry-run） |
