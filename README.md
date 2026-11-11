@@ -480,3 +480,4 @@ pwsh ./01-create-portgroup/New-DistributedPortGroup-v1.1.ps1 -Rollback
 |---|---|
 | [`vcf91-interop/`](vcf91-interop/) | VCD 10.6.2 接 VCF 9.1（vCenter 9 / NSX 9）互通驗證報告與建置順序 |
 | [`nsx-alb-avi-rebuild/`](nsx-alb-avi-rebuild/) | Avi（NSX ALB）controller 重裝 / 換 CA 後修復 VCD 的 NSX-ALB 設定：信任新憑證 → 刪舊 SEG / Cloud → 匯回新的。解 `Cannot delete Load Balancer Controller ... has associated Load Balancer Clouds`、`PKIX path building failed`（Python，預設 dry-run） |
+| [`appliance-backup-responses-properties/`](appliance-backup-responses-properties/) | appliance 備份失敗 `Missing user.certificate.path value in .../transfer/responses.properties`：transfer share 少了 `responses.properties` → 從 primary 本機 `etc/` 複製回去；附 appliance 服務檢查指令 |
